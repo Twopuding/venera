@@ -1,0 +1,50 @@
+{
+  "app": {
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "C:\\Users\\Twopudding\\.ohos\\config\\default_venera_XXVJJcoePxCLZSkN64OW7JXisQNzdGuBxZc4rqCxoww=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001B2AAE60A66D84EF13877357BDA794C4DB5BBA19182B315CDA249FBF160B3283F9CF1EAFD7E4C43E",
+          "profile": "C:\\Users\\Twopudding\\.ohos\\config\\default_venera_XXVJJcoePxCLZSkN64OW7JXisQNzdGuBxZc4rqCxoww=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "C:\\Users\\Twopudding\\.ohos\\config\\default_venera_XXVJJcoePxCLZSkN64OW7JXisQNzdGuBxZc4rqCxoww=.p12",
+          "storePassword": "0000001B4F231A08D9D9974F7D4C9A805187E9503EB0852D20DBFF836EA44F5199B721A5BF611DBFDFDBA1"
+        }
+      }
+    ],
+    "products": [
+      {
+        "name": "default",
+        "signingConfig": "default",
+        "compatibleSdkVersion": "6.1.0(23)",
+        "runtimeOS": "HarmonyOS",
+        "targetSdkVersion": "6.1.0(23)"
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug"
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}

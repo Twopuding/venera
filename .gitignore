@@ -1,0 +1,11 @@
+/node_modules/
+/oh_modules/
+/.hvigor/
+/build/
+/.idea/
+*.hap
+*.app
+local.properties
+**/BuildProfile.ets
+upstream/
+entry/src/main/cpp/third_party/

@@ -1,0 +1,14 @@
+{
+  "src": [
+    "pages/Index",
+    "pages/reader/ReaderPage",
+    "pages/comic/ComicDetailPage",
+    "pages/search/SearchPage",
+    "pages/settings/SettingsPage",
+    "pages/download/DownloadPage",
+    "pages/sources/ComicSourcePage",
+    "pages/local/LocalLibraryPage",
+    "pages/local/LocalComicDetailPage",
+    "pages/history/HistoryPage"
+  ]
+}

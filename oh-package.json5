@@ -1,0 +1,13 @@
+{
+  "modelVersion": "6.1.0",
+  "name": "venera",
+  "version": "1.0.0",
+  "description": "Venera comic reader for HarmonyOS",
+  "main": "",
+  "author": "",
+  "license": "GPL-3.0",
+  "dependencies": {},
+  "devDependencies": {
+    "@ohos/hypium": "1.0.21"
+  }
+}
