@@ -68,6 +68,26 @@ export class FavoritesService {
     return this.favorites.some((f: FavoriteEntry) => f.id === id && f.sourceKey === sourceKey);
   }
 
+  /** WebDAV 拉取后合并收藏（按 id+sourceKey，保留较新 addedAt） */
+  async mergeFromRemote(remote: FavoriteEntry[]): Promise<void> {
+    const map = new Map<string, FavoriteEntry>();
+    for (let i = 0; i < this.favorites.length; i++) {
+      const f = this.favorites[i];
+      map.set(`${f.sourceKey}::${f.id}`, f);
+    }
+    for (let i = 0; i < remote.length; i++) {
+      const r = remote[i];
+      const key = `${r.sourceKey}::${r.id}`;
+      const existing = map.get(key);
+      if (!existing || r.addedAt > existing.addedAt) {
+        map.set(key, r);
+      }
+    }
+    this.favorites = Array.from(map.values());
+    this.favorites.sort((a: FavoriteEntry, b: FavoriteEntry) => b.addedAt - a.addedAt);
+    await this.persist();
+  }
+
   private async persist(): Promise<void> {
     if (!this.prefStore) {
       return;

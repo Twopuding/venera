@@ -34,11 +34,11 @@ export class JsNativeRuntime {
     }
   }
 
-  static initRuntime(initJs: string): boolean {
+  static async initRuntime(initJs: string): Promise<boolean> {
     if (!JsNativeRuntime.isAvailable()) {
       return false;
     }
-    const ok = qjs.initRuntime(initJs, AppConstants.HARMONY_VERSION) as boolean;
+    const ok = await qjs.initRuntime(initJs, AppConstants.HARMONY_VERSION) as boolean;
     if (!ok) {
       return false;
     }
@@ -47,23 +47,35 @@ export class JsNativeRuntime {
     return registered;
   }
 
-  static loadSource(sourceKey: string, script: string): boolean {
+  static async loadSource(sourceKey: string, script: string): Promise<boolean> {
     if (!JsNativeRuntime.handlerReady) {
       return false;
     }
-    return qjs.loadSource(sourceKey, script) as boolean;
+    return await qjs.loadSource(sourceKey, script) as boolean;
   }
 
-  static evaluate(script: string): string {
+  static async evaluate(script: string): Promise<string> {
     if (!JsNativeRuntime.handlerReady) {
       return 'null';
     }
-    return qjs.evaluate(script) as string;
+    return await qjs.evaluate(script) as string;
   }
 
   static resetSources(): void {
     if (JsNativeRuntime.handlerReady) {
       qjs.resetSources();
+    }
+  }
+
+  /** 7z/cb7 解压（需 LZMA SDK + extract7z NAPI） */
+  static extract7z(archivePath: string, outDir: string): boolean {
+    if (!JsNativeRuntime.isAvailable()) {
+      return false;
+    }
+    try {
+      return qjs.extract7z(archivePath, outDir) as boolean;
+    } catch (_e) {
+      return false;
     }
   }
 }

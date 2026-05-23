@@ -1,6 +1,7 @@
 import { router } from '@kit.ArkUI';
 import { FavoritesService } from '../../common/services/FavoritesService';
 import { Comic } from '../../common/models/ComicModels';
+import { ComicListRow } from '../../common/components/ComicListRow';
 import { ShellInsets } from '../../common/layout/ShellInsets';
 import { SysTheme } from '../../common/theme/SysTheme';
 
@@ -29,31 +30,14 @@ export struct FavoritesPage {
           List() {
             ForEach(this.comics, (comic: Comic) => {
               ListItem() {
-                Row({ space: 12 }) {
-                  Image(comic.cover)
-                    .width(56)
-                    .height(72)
-                    .borderRadius(6)
-                    .backgroundColor(SysTheme.BACKGROUND_SECONDARY)
-                  Column() {
-                    Text(comic.title)
-                      .fontSize(16)
-                      .fontColor(SysTheme.FONT_PRIMARY)
-                    Text(comic.sourceKey)
-                      .fontSize(12)
-                      .fontColor(SysTheme.FONT_SECONDARY)
-                      .margin({ top: 4 })
+                ComicListRow({
+                  comic: comic,
+                  onItemClick: () => {
+                    router.pushUrl({
+                      url: 'pages/comic/ComicDetailPage',
+                      params: { comicJson: JSON.stringify(comic) }
+                    });
                   }
-                  .alignItems(HorizontalAlign.Start)
-                  .layoutWeight(1)
-                }
-                .width('100%')
-                .padding(12)
-                .onClick(() => {
-                  router.pushUrl({
-                    url: 'pages/comic/ComicDetailPage',
-                    params: { comicJson: JSON.stringify(comic) }
-                  });
                 })
               }
             }, (comic: Comic) => `${comic.sourceKey}_${comic.id}`)

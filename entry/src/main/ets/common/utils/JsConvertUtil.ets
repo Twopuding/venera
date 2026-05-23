@@ -18,6 +18,7 @@ export class JsConvertUtil {
   private static base64 = new util.Base64Helper();
   private static textEncoder = new util.TextEncoder();
   private static textDecoder = new util.TextDecoder('utf-8');
+  private static gbkDecoder: util.TextDecoder | undefined = undefined;
 
   static toBytes(value: string | ArrayBuffer | undefined): Uint8Array {
     if (value === undefined) {
@@ -72,6 +73,18 @@ export class JsConvertUtil {
       }
       return '';
     }
+    if (type === 'base64') {
+      if (isEncode && value instanceof ArrayBuffer) {
+        return JsConvertUtil.base64.encodeToStringSync(new Uint8Array(value));
+      }
+      if (!isEncode && typeof value === 'string') {
+        return JsConvertUtil.base64.decodeSync(value).buffer;
+      }
+      return null;
+    }
+    if (type === 'gbk') {
+      return JsConvertUtil.handleGbkSync(isEncode, value);
+    }
     return null;
   }
 
@@ -104,6 +117,10 @@ export class JsConvertUtil {
       return null;
     }
 
+    if (type === 'gbk') {
+      return JsConvertUtil.handleGbkSync(isEncode, value);
+    }
+
     const hashTypes = ['md5', 'sha1', 'sha256', 'sha512'];
     if (hashTypes.indexOf(type) >= 0) {
       const bytes = JsConvertUtil.toBytes(value);
@@ -130,5 +147,24 @@ export class JsConvertUtil {
 
     console.warn(`[JsConvertUtil] unsupported convert type: ${type}`);
     return null;
+  }
+
+  private static handleGbkSync(isEncode: boolean, value: string | ArrayBuffer | undefined): string | ArrayBuffer | null {
+    if (isEncode) {
+      console.warn('[JsConvertUtil] GBK encode: use QuickJS 同步 convert 原生路径');
+      return null;
+    }
+    try {
+      if (!JsConvertUtil.gbkDecoder) {
+        JsConvertUtil.gbkDecoder = new util.TextDecoder('gbk');
+      }
+    } catch (e) {
+      console.warn(`[JsConvertUtil] GBK decode unavailable: ${e}`);
+      return null;
+    }
+    if (value instanceof ArrayBuffer) {
+      return JsConvertUtil.gbkDecoder!.decodeToString(new Uint8Array(value));
+    }
+    return '';
   }
 }

@@ -1,9 +1,12 @@
+import { SafeAreaInsets } from '../../common/layout/SafeAreaInsets';
 import { router } from '@kit.ArkUI';
 import { ComicSourceService } from '../../common/services/ComicSourceService';
 import { JsEngineBridge } from '../../common/services/JsEngineBridge';
 import { AppDataService } from '../../common/services/AppDataService';
 import { Comic } from '../../common/models/ComicModels';
+import { ComicListRow } from '../../common/components/ComicListRow';
 import { SysTheme } from '../../common/theme/SysTheme';
+import { SecondaryPageHeader } from '../../common/components/SecondaryPageHeader';
 
 @Entry
 @Component
@@ -20,6 +23,10 @@ struct SearchPage {
     const params = router.getParams() as Record<string, string>;
     this.sourceKey = params['sourceKey'] ?? '';
     this.sourceName = params['sourceName'] ?? '';
+    const kw = params['keyword'] ?? '';
+    if (kw.length > 0) {
+      this.keyword = kw;
+    }
     const status = JsEngineBridge.getInstance().getStatus();
     const scope = this.sourceName.length > 0 ? `源「${this.sourceName}」` : '全部源';
     this.engineHint = status.runtimeReady ?
@@ -39,8 +46,19 @@ struct SearchPage {
     this.searching = false;
   }
 
+  private openComic(comic: Comic): void {
+    router.pushUrl({
+      url: 'pages/comic/ComicDetailPage',
+      params: { comicJson: JSON.stringify(comic) }
+    });
+  }
+
   build() {
     Column() {
+        SecondaryPageHeader({
+        title: this.sourceName.length > 0 ? this.sourceName : $r('app.string.search')
+      })
+
       Text(this.engineHint)
         .fontSize(12)
         .fontColor(SysTheme.FONT_SECONDARY)
@@ -57,11 +75,23 @@ struct SearchPage {
         TextInput({ placeholder: '搜索漫画…', text: this.keyword })
           .layoutWeight(1)
           .onChange((v: string) => { this.keyword = v; })
+          .onSubmit(() => this.doSearch())
         Button('搜索')
           .buttonStyle(ButtonStyleMode.EMPHASIZED)
           .onClick(() => this.doSearch())
       }
-      .padding(16)
+      .padding({ left: 16, right: 16, top: 0, bottom: 8 })
+
+      if (this.sourceKey.length === 0) {
+        Button($r('app.string.aggregated_search'))
+          .type(ButtonType.Capsule)
+          .height(32)
+          .margin({ left: 16, right: 16, bottom: 8 })
+          .onClick(() => router.pushUrl({
+            url: 'pages/search/AggregatedSearchPage',
+            params: { keyword: this.keyword.trim() }
+          }))
+      }
 
       if (this.searching) {
         LoadingProgress().width(48).height(48).margin(24)
@@ -69,13 +99,10 @@ struct SearchPage {
         List() {
           ForEach(this.results, (comic: Comic) => {
             ListItem() {
-              Text(comic.title)
-                .fontSize(15)
-                .padding(12)
-                .onClick(() => router.pushUrl({
-                  url: 'pages/comic/ComicDetailPage',
-                  params: { comicJson: JSON.stringify(comic) }
-                }))
+              ComicListRow({
+                comic: comic,
+                onItemClick: () => this.openComic(comic)
+              })
             }
           }, (c: Comic) => `${c.sourceKey}_${c.id}`)
         }
@@ -107,13 +134,10 @@ struct SearchPage {
       } else {
         Blank().layoutWeight(1)
       }
-
-      Button('返回')
-        .margin(16)
-        .onClick(() => router.back())
     }
     .width('100%')
     .height('100%')
+    .padding(SafeAreaInsets.pagePadding())
     .backgroundColor(SysTheme.BACKGROUND_PRIMARY)
   }
 }

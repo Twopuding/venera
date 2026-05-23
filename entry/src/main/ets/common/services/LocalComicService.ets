@@ -5,6 +5,10 @@ import { AppConstants } from '../constants/AppConstants';
 import { LocalImageUtil } from '../utils/LocalImageUtil';
 import { DocumentImportHelper } from '../utils/DocumentImportHelper';
 import { ArchiveExtractUtil } from '../utils/ArchiveExtractUtil';
+import { EpubParseUtil } from '../utils/EpubParseUtil';
+import { EpubChapter } from '../models/ComicModels';
+import { FileIoUtil } from '../utils/FileIoUtil';
+import { HistoryService } from './HistoryService';
 
 /**
  * Local comic library — port of upstream foundation/local.dart (simplified).
@@ -32,7 +36,11 @@ export class LocalComicService {
     } catch (_e) {
       // directory may already exist
     }
-    await this.scanLibrary();
+    setTimeout(() => {
+      this.scanLibrary().then(() => this.notify()).catch((e: Error) => {
+        console.warn(`[LocalComicService] scanLibrary failed: ${e}`);
+      });
+    }, 0);
   }
 
   getContext(): common.UIAbilityContext | undefined {
@@ -87,11 +95,25 @@ export class LocalComicService {
   }
 
   private buildComicItem(id: string, fullPath: string): LocalComicItem {
+    const pdfPath = LocalComicService.findPdfInDir(fullPath);
+    if (pdfPath.length > 0) {
+      const item = new LocalComicItem();
+      item.id = id;
+      item.title = id;
+      item.directory = fullPath;
+      item.mediaType = 'pdf';
+      item.pdfPath = pdfPath;
+      item.coverPath = '';
+      item.chapterCount = 1;
+      item.pageCount = 0;
+      return item;
+    }
     const comicRoot = LocalImageUtil.resolveComicRoot(fullPath);
     const item = new LocalComicItem();
     item.id = id;
     item.title = id;
     item.directory = fullPath;
+    item.mediaType = 'images';
     item.coverPath = LocalImageUtil.resolveCoverPath(comicRoot);
     const chapterNames = LocalImageUtil.listChapterSubdirs(comicRoot);
     const flatImages = LocalImageUtil.listImageFiles(comicRoot);
@@ -111,7 +133,45 @@ export class LocalComicService {
       item.chapterCount = flatImages.length > 0 ? 1 : 0;
       item.pageCount = flatImages.length;
     }
+    if (item.pageCount === 0 && EpubParseUtil.isEpubBook(comicRoot)) {
+      const epubChapters = EpubParseUtil.listSpineChapters(comicRoot);
+      if (epubChapters.length > 0) {
+        item.mediaType = 'epub';
+        item.chapterCount = epubChapters.length;
+        item.chapters = epubChapters.map((ch: EpubChapter) => {
+          const chapter = new LocalComicChapter();
+          chapter.id = ch.id;
+          chapter.title = ch.title;
+          chapter.directory = ch.href;
+          chapter.pageCount = 1;
+          return chapter;
+        });
+        item.pageCount = epubChapters.length;
+        item.coverPath = '';
+      }
+    }
+    const hist = HistoryService.getInstance().find(id, 'local');
+    if (hist) {
+      item.lastReadChapterId = hist.chapterId;
+      item.lastReadPage = hist.pageIndex;
+    }
     return item;
+  }
+
+  /** 从书架移除本地漫画目录 */
+  async removeComic(id: string): Promise<boolean> {
+    const comic = this.getComicById(id);
+    if (!comic || comic.directory.length === 0) {
+      return false;
+    }
+    try {
+      FileIoUtil.deleteRecursive(comic.directory);
+    } catch (e) {
+      console.error(`[LocalComicService] remove failed: ${e}`);
+      return false;
+    }
+    await this.scanLibrary();
+    return true;
   }
 
   /**
@@ -135,6 +195,15 @@ export class LocalComicService {
         }
       }
     }
+    if (!imported) {
+      const pdfs = await DocumentImportHelper.pickPdfFiles(this.context);
+      for (const uri of pdfs) {
+        const ok = await this.copyUriIntoLibrary(uri, DocumentImportHelper.archiveNameFromUri(uri), true);
+        if (ok) {
+          imported = true;
+        }
+      }
+    }
     if (imported) {
       await this.scanLibrary();
     }
@@ -146,16 +215,21 @@ export class LocalComicService {
     try {
       if (isFile) {
         const ext = this.fileExtension(srcUri);
-        if (ArchiveExtractUtil.is7zArchive(srcUri) || ext === '.7z' || ext === '.cb7') {
-          console.warn('[LocalComicService] 7z/cb7 需原生解压模块，当前 API 23 仅支持 ZIP/CBZ');
-          return false;
-        }
         const destDir = `${this.rootPath}/${safeName}`;
         fileIo.mkdirSync(destDir, true);
         const archivePath = `${destDir}/__import${ext}`;
         await fileIo.copy(srcUri, archivePath);
-        if (ArchiveExtractUtil.isZipArchive(archivePath)) {
-          await ArchiveExtractUtil.extractZipToDir(archivePath, destDir);
+        if (ext === '.pdf') {
+          const pdfDest = `${destDir}/book.pdf`;
+          try {
+            fileIo.renameSync(archivePath, pdfDest);
+          } catch (_e) {
+            await fileIo.copy(srcUri, pdfDest);
+          }
+          return true;
+        }
+        if (ArchiveExtractUtil.isZipArchive(archivePath) || ArchiveExtractUtil.is7zArchive(archivePath)) {
+          await ArchiveExtractUtil.extractArchiveToDir(archivePath, destDir);
           try {
             fileIo.unlinkSync(archivePath);
           } catch (_e) {
@@ -164,7 +238,9 @@ export class LocalComicService {
         }
         const effectiveRoot = LocalImageUtil.resolveComicRoot(destDir);
         if (LocalImageUtil.listImageFiles(effectiveRoot).length === 0 &&
-          LocalImageUtil.listChapterSubdirs(effectiveRoot).length === 0) {
+          LocalImageUtil.listChapterSubdirs(effectiveRoot).length === 0 &&
+          LocalComicService.findPdfInDir(destDir).length === 0 &&
+          !EpubParseUtil.isEpubBook(effectiveRoot)) {
           console.error('[LocalComicService] archive contains no readable images');
           return false;
         }
@@ -189,12 +265,12 @@ export class LocalComicService {
     try {
       const names = fileIo.listFileSync(comicDir);
       const archives = names.filter((n: string) =>
-        ArchiveExtractUtil.isZipArchive(n) && !n.startsWith('.'));
+        (ArchiveExtractUtil.isZipArchive(n) || ArchiveExtractUtil.is7zArchive(n)) && !n.startsWith('.'));
       if (archives.length !== 1) {
         return;
       }
       const archivePath = `${comicDir}/${archives[0]}`;
-      await ArchiveExtractUtil.extractZipToDir(archivePath, comicDir);
+      await ArchiveExtractUtil.extractArchiveToDir(archivePath, comicDir);
       try {
         fileIo.unlinkSync(archivePath);
       } catch (_e) {
@@ -205,9 +281,24 @@ export class LocalComicService {
     }
   }
 
+  private static findPdfInDir(dir: string): string {
+    try {
+      const names = fileIo.listFileSync(dir);
+      for (let i = 0; i < names.length; i++) {
+        const n = names[i];
+        if (n.toLowerCase().endsWith('.pdf')) {
+          return `${dir}/${n}`;
+        }
+      }
+    } catch (_e) {
+      // empty
+    }
+    return '';
+  }
+
   private fileExtension(uri: string): string {
     const lower = decodeURIComponent(uri).toLowerCase();
-    for (const ext of ['.cbz', '.zip', '.7z', '.cb7']) {
+    for (const ext of ['.cbz', '.zip', '.7z', '.cb7', '.epub', '.pdf']) {
       if (lower.endsWith(ext)) {
         return ext;
       }

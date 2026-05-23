@@ -1,12 +1,109 @@
 #include "venera_qjs_runtime.h"
+#include "venera_archive.h"
 
 #include <string>
+#include <thread>
 
 #include "napi/native_api.h"
 
 namespace {
 
 VeneraQjsRuntime *g_runtime = nullptr;
+napi_threadsafe_function g_load_resolve_tsfn = nullptr;
+napi_threadsafe_function g_eval_resolve_tsfn = nullptr;
+napi_threadsafe_function g_init_resolve_tsfn = nullptr;
+
+struct InitRuntimeWork {
+    napi_deferred deferred = nullptr;
+    std::string initJs;
+    std::string appVersion;
+    bool ok = false;
+};
+
+void init_resolve_tsfn_callback(napi_env env, napi_value /*js_callback*/, void * /*context*/, void *data)
+{
+    InitRuntimeWork *work = static_cast<InitRuntimeWork *>(data);
+    if (work == nullptr || work->deferred == nullptr) {
+        delete work;
+        return;
+    }
+    napi_value result;
+    napi_get_boolean(env, work->ok, &result);
+    napi_resolve_deferred(env, work->deferred, result);
+    delete work;
+}
+
+void ensure_init_resolve_tsfn(napi_env env)
+{
+    if (g_init_resolve_tsfn != nullptr) {
+        return;
+    }
+    napi_value resourceName;
+    napi_create_string_utf8(env, "VeneraInitResolve", NAPI_AUTO_LENGTH, &resourceName);
+    napi_create_threadsafe_function(env, nullptr, nullptr, resourceName, 0, 1, nullptr, nullptr, nullptr,
+        init_resolve_tsfn_callback, &g_init_resolve_tsfn);
+}
+
+struct LoadSourceWork {
+    napi_deferred deferred = nullptr;
+    std::string key;
+    std::string script;
+    bool ok = false;
+};
+
+void load_resolve_tsfn_callback(napi_env env, napi_value /*js_callback*/, void * /*context*/, void *data)
+{
+    LoadSourceWork *work = static_cast<LoadSourceWork *>(data);
+    if (work == nullptr || work->deferred == nullptr) {
+        delete work;
+        return;
+    }
+    napi_value result;
+    napi_get_boolean(env, work->ok, &result);
+    napi_resolve_deferred(env, work->deferred, result);
+    delete work;
+}
+
+struct EvalWork {
+    napi_deferred deferred = nullptr;
+    std::string script;
+    std::string resultJson;
+};
+
+void eval_resolve_tsfn_callback(napi_env env, napi_value /*js_callback*/, void * /*context*/, void *data)
+{
+    EvalWork *work = static_cast<EvalWork *>(data);
+    if (work == nullptr || work->deferred == nullptr) {
+        delete work;
+        return;
+    }
+    napi_value result;
+    napi_create_string_utf8(env, work->resultJson.c_str(), work->resultJson.size(), &result);
+    napi_resolve_deferred(env, work->deferred, result);
+    delete work;
+}
+
+void ensure_load_resolve_tsfn(napi_env env)
+{
+    if (g_load_resolve_tsfn != nullptr) {
+        return;
+    }
+    napi_value resourceName;
+    napi_create_string_utf8(env, "VeneraLoadResolve", NAPI_AUTO_LENGTH, &resourceName);
+    napi_create_threadsafe_function(env, nullptr, nullptr, resourceName, 0, 1, nullptr, nullptr, nullptr,
+        load_resolve_tsfn_callback, &g_load_resolve_tsfn);
+}
+
+void ensure_eval_resolve_tsfn(napi_env env)
+{
+    if (g_eval_resolve_tsfn != nullptr) {
+        return;
+    }
+    napi_value resourceName;
+    napi_create_string_utf8(env, "VeneraEvalResolve", NAPI_AUTO_LENGTH, &resourceName);
+    napi_create_threadsafe_function(env, nullptr, nullptr, resourceName, 0, 1, nullptr, nullptr, nullptr,
+        eval_resolve_tsfn_callback, &g_eval_resolve_tsfn);
+}
 
 napi_value ensure_runtime()
 {
@@ -27,18 +124,34 @@ std::string napi_get_string(napi_env env, napi_value value)
     return out;
 }
 
+/** initRuntime：在 worker 线程执行 QuickJS 初始化，避免主线程长时间白屏 */
 napi_value NapiInitRuntime(napi_env env, napi_callback_info info)
 {
     size_t argc = 2;
     napi_value args[2];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-    ensure_runtime();
-    std::string initJs = napi_get_string(env, args[0]);
-    std::string appVersion = argc > 1 ? napi_get_string(env, args[1]) : "1.0.0";
-    bool ok = venera_qjs_init(g_runtime, initJs, appVersion);
-    napi_value result;
-    napi_get_boolean(env, ok, &result);
-    return result;
+    napi_value promise;
+    napi_deferred deferred;
+    napi_create_promise(env, &deferred, &promise);
+    ensure_init_resolve_tsfn(env);
+    if (g_init_resolve_tsfn == nullptr) {
+        napi_value f;
+        napi_get_boolean(env, false, &f);
+        napi_resolve_deferred(env, deferred, f);
+        return promise;
+    }
+    InitRuntimeWork *work = new InitRuntimeWork();
+    work->deferred = deferred;
+    work->initJs = napi_get_string(env, args[0]);
+    work->appVersion = argc > 1 ? napi_get_string(env, args[1]) : "1.0.0";
+    std::thread([work]() {
+        if (g_runtime == nullptr) {
+            g_runtime = venera_qjs_create();
+        }
+        work->ok = venera_qjs_init(g_runtime, work->initJs, work->appVersion);
+        napi_call_threadsafe_function(g_init_resolve_tsfn, work, napi_tsfn_blocking);
+    }).detach();
+    return promise;
 }
 
 napi_value NapiRegisterHandler(napi_env env, napi_callback_info info)
@@ -64,17 +177,31 @@ napi_value NapiLoadSource(napi_env env, napi_callback_info info)
     size_t argc = 2;
     napi_value args[2];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    napi_value promise;
+    napi_deferred deferred;
+    napi_create_promise(env, &deferred, &promise);
     if (g_runtime == nullptr) {
         napi_value f;
         napi_get_boolean(env, false, &f);
-        return f;
+        napi_resolve_deferred(env, deferred, f);
+        return promise;
     }
-    std::string key = napi_get_string(env, args[0]);
-    std::string script = napi_get_string(env, args[1]);
-    bool ok = venera_qjs_load_source(g_runtime, key, script);
-    napi_value result;
-    napi_get_boolean(env, ok, &result);
-    return result;
+    ensure_load_resolve_tsfn(env);
+    if (g_load_resolve_tsfn == nullptr) {
+        napi_value f;
+        napi_get_boolean(env, false, &f);
+        napi_resolve_deferred(env, deferred, f);
+        return promise;
+    }
+    LoadSourceWork *work = new LoadSourceWork();
+    work->deferred = deferred;
+    work->key = napi_get_string(env, args[0]);
+    work->script = napi_get_string(env, args[1]);
+    std::thread([work]() {
+        work->ok = venera_qjs_load_source(g_runtime, work->key, work->script);
+        napi_call_threadsafe_function(g_load_resolve_tsfn, work, napi_tsfn_blocking);
+    }).detach();
+    return promise;
 }
 
 napi_value NapiEvaluate(napi_env env, napi_callback_info info)
@@ -82,16 +209,30 @@ napi_value NapiEvaluate(napi_env env, napi_callback_info info)
     size_t argc = 1;
     napi_value args[1];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    napi_value promise;
+    napi_deferred deferred;
+    napi_create_promise(env, &deferred, &promise);
     if (g_runtime == nullptr) {
         napi_value s;
         napi_create_string_utf8(env, "null", NAPI_AUTO_LENGTH, &s);
-        return s;
+        napi_resolve_deferred(env, deferred, s);
+        return promise;
     }
-    std::string script = napi_get_string(env, args[0]);
-    std::string json = venera_qjs_eval_json(g_runtime, script, "<eval>");
-    napi_value result;
-    napi_create_string_utf8(env, json.c_str(), json.size(), &result);
-    return result;
+    ensure_eval_resolve_tsfn(env);
+    if (g_eval_resolve_tsfn == nullptr) {
+        napi_value s;
+        napi_create_string_utf8(env, "null", NAPI_AUTO_LENGTH, &s);
+        napi_resolve_deferred(env, deferred, s);
+        return promise;
+    }
+    EvalWork *work = new EvalWork();
+    work->deferred = deferred;
+    work->script = napi_get_string(env, args[0]);
+    std::thread([work]() {
+        work->resultJson = venera_qjs_eval_json(g_runtime, work->script, "<eval>");
+        napi_call_threadsafe_function(g_eval_resolve_tsfn, work, napi_tsfn_blocking);
+    }).detach();
+    return promise;
 }
 
 napi_value NapiResetSources(napi_env env, napi_callback_info /*info*/)
@@ -111,6 +252,20 @@ napi_value NapiIsAvailable(napi_env env, napi_callback_info /*info*/)
     return result;
 }
 
+napi_value NapiExtract7z(napi_env env, napi_callback_info info)
+{
+    size_t argc = 2;
+    napi_value args[2];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    std::string archivePath = argc > 0 ? napi_get_string(env, args[0]) : "";
+    std::string outDir = argc > 1 ? napi_get_string(env, args[1]) : "";
+    std::string err;
+    bool ok = venera_extract_7z(archivePath, outDir, err);
+    napi_value result;
+    napi_get_boolean(env, ok, &result);
+    return result;
+}
+
 napi_value Init(napi_env env, napi_value exports)
 {
     napi_property_descriptor desc[] = {
@@ -120,6 +275,7 @@ napi_value Init(napi_env env, napi_value exports)
         {"evaluate", nullptr, NapiEvaluate, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"resetSources", nullptr, NapiResetSources, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"isAvailable", nullptr, NapiIsAvailable, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"extract7z", nullptr, NapiExtract7z, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
     return exports;

@@ -1,14 +1,31 @@
 {
   "src": [
+    "pages/LaunchPage",
     "pages/Index",
     "pages/reader/ReaderPage",
+    "pages/reader/PdfReaderPage",
+    "pages/reader/EpubReaderPage",
+    "pages/explore/ExploreRecommendPage",
+    "pages/explore/ExplorePagesPickerPage",
+    "pages/common/JsSelectDialogPage",
     "pages/comic/ComicDetailPage",
     "pages/search/SearchPage",
+    "pages/search/AggregatedSearchPage",
+    "pages/categories/CategoryComicsPage",
+    "pages/ranking/RankingPage",
     "pages/settings/SettingsPage",
+    "pages/settings/SearchSourcesSettingsPage",
     "pages/download/DownloadPage",
     "pages/sources/ComicSourcePage",
+    "pages/sources/ComicSourceListPage",
+    "pages/sources/ComicSourceEditPage",
+    "pages/sources/SourcePasswordLoginPage",
+    "pages/sources/SourceLoginWebPage",
+    "pages/common/JsInputDialogPage",
     "pages/local/LocalLibraryPage",
     "pages/local/LocalComicDetailPage",
-    "pages/history/HistoryPage"
+    "pages/history/HistoryPage",
+    "pages/follow/FollowUpdatesPage",
+    "pages/image_favorites/ImageFavoritesPage"
   ]
 }

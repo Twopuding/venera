@@ -19,7 +19,38 @@ add_library(venera_qjs SHARED
     napi_init.cpp
     venera_qjs_runtime.cpp
     venera_http.cpp
+    venera_convert.cpp
+    venera_archive.cpp
 )
+
+set(LZMA_C_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/lzma/C)
+if(EXISTS ${LZMA_C_DIR}/7zDec.c)
+    message(STATUS "LZMA SDK found, enabling VENERA_HAS_LZMA_SDK")
+    target_compile_definitions(venera_qjs PRIVATE VENERA_HAS_LZMA_SDK)
+    target_include_directories(venera_qjs PRIVATE ${LZMA_C_DIR})
+    target_sources(venera_qjs PRIVATE
+        ${LZMA_C_DIR}/7zAlloc.c
+        ${LZMA_C_DIR}/7zArcIn.c
+        ${LZMA_C_DIR}/7zBuf.c
+        ${LZMA_C_DIR}/7zBuf2.c
+        ${LZMA_C_DIR}/7zCrc.c
+        ${LZMA_C_DIR}/7zCrcOpt.c
+        ${LZMA_C_DIR}/7zDec.c
+        ${LZMA_C_DIR}/7zFile.c
+        ${LZMA_C_DIR}/7zStream.c
+        ${LZMA_C_DIR}/Alloc.c
+        ${LZMA_C_DIR}/Bcj2.c
+        ${LZMA_C_DIR}/Bra.c
+        ${LZMA_C_DIR}/Bra86.c
+        ${LZMA_C_DIR}/BraIA64.c
+        ${LZMA_C_DIR}/CpuArch.c
+        ${LZMA_C_DIR}/Delta.c
+        ${LZMA_C_DIR}/Lzma2Dec.c
+        ${LZMA_C_DIR}/LzmaDec.c
+        ${LZMA_C_DIR}/Ppmd7.c
+        ${LZMA_C_DIR}/Ppmd7Dec.c
+    )
+endif()
 
 # librcp_c.so ships in HMS sysroot, not openharmony sysroot
 if(DEFINED HMOS_SDK_NATIVE)

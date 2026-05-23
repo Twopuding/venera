@@ -5,6 +5,8 @@ import { AppDataService } from './AppDataService';
 const DEFAULT_HEADERS: Record<string, string> = {
   'User-Agent': 'Venera-HarmonyOS/1.0'
 };
+const CONNECT_TIMEOUT_MS: number = 8000;
+const READ_TIMEOUT_MS: number = 15000;
 
 export interface HttpRequestOptions {
   url: string;
@@ -61,18 +63,28 @@ export class HttpService {
     }
     const method = (options.method ?? 'GET').toUpperCase();
     const wantBytes = options.bytes === true;
+    let reqMethod = http.RequestMethod.GET;
+    if (method === 'POST') {
+      reqMethod = http.RequestMethod.POST;
+    } else if (method === 'PUT') {
+      reqMethod = http.RequestMethod.PUT;
+    } else if (method === 'DELETE') {
+      reqMethod = http.RequestMethod.DELETE;
+    } else if (method === 'HEAD') {
+      reqMethod = http.RequestMethod.HEAD;
+    } else if (method === 'OPTIONS') {
+      reqMethod = http.RequestMethod.OPTIONS;
+    }
     try {
       const response = await request.request(options.url, {
-        method: method === 'POST' ? http.RequestMethod.POST :
-          method === 'PUT' ? http.RequestMethod.PUT :
-            method === 'DELETE' ? http.RequestMethod.DELETE :
-              method === 'HEAD' ? http.RequestMethod.HEAD :
-                http.RequestMethod.GET,
+        method: reqMethod,
         header: mergedHeaders,
         extraData: options.body,
         expectDataType: wantBytes ? http.HttpDataType.ARRAY_BUFFER : http.HttpDataType.STRING,
         usingProxy: proxy.length > 0,
-        caPath: ''
+        caPath: '',
+        connectTimeout: CONNECT_TIMEOUT_MS,
+        readTimeout: READ_TIMEOUT_MS
       });
       const headerMap: Record<string, string> = {};
       if (response.header) {
@@ -96,6 +108,16 @@ export class HttpService {
     } finally {
       request.destroy();
     }
+  }
+
+  async putText(url: string, content: string, headers?: Record<string, string>): Promise<HttpResponse> {
+    return this.request({
+      url: url,
+      method: 'PUT',
+      headers: headers,
+      body: content,
+      bytes: false
+    });
   }
 
   async downloadFile(url: string, destPath: string,

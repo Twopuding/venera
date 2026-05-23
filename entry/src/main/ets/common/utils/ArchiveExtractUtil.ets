@@ -1,11 +1,12 @@
 import { zlib } from '@kit.BasicServicesKit';
 import { fileIo } from '@kit.CoreFileKit';
+import { JsNativeRuntime } from '../services/JsNativeRuntime';
 
-const ZIP_EXTENSIONS: string[] = ['.zip', '.cbz'];
+const ZIP_EXTENSIONS: string[] = ['.zip', '.cbz', '.epub'];
 
 /**
- * CBZ/ZIP 解压（API 23 @kit.BasicServicesKit zlib.decompressFile）。
- * 7z/cb7 需原生模块，当前仅提示不支持。
+ * 压缩包解压（API 23）。
+ * ZIP/CBZ：zlib.decompressFile；7z/cb7：NAPI + LZMA SDK（scripts/fetch-lzma.ps1）。
  */
 export class ArchiveExtractUtil {
   static isZipArchive(path: string): boolean {
@@ -31,5 +32,30 @@ export class ArchiveExtractUtil {
       fileIo.mkdirSync(outDir, true);
     }
     await zlib.decompressFile(archivePath, outDir, {});
+  }
+
+  /**
+   * 7z/cb7 解压到已存在目录（outDir 须预先 mkdir）。
+   */
+  static extract7zToDir(archivePath: string, outDir: string): void {
+    if (!ArchiveExtractUtil.is7zArchive(archivePath)) {
+      throw new Error(`Unsupported 7z archive: ${archivePath}`);
+    }
+    const ok = JsNativeRuntime.extract7z(archivePath, outDir);
+    if (!ok) {
+      throw new Error('7z extract failed (fetch-lzma.ps1 + rebuild required)');
+    }
+  }
+
+  static async extractArchiveToDir(archivePath: string, outDir: string): Promise<void> {
+    if (ArchiveExtractUtil.isZipArchive(archivePath)) {
+      await ArchiveExtractUtil.extractZipToDir(archivePath, outDir);
+      return;
+    }
+    if (ArchiveExtractUtil.is7zArchive(archivePath)) {
+      ArchiveExtractUtil.extract7zToDir(archivePath, outDir);
+      return;
+    }
+    throw new Error(`Unsupported archive: ${archivePath}`);
   }
 }

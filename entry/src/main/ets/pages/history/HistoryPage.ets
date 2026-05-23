@@ -1,7 +1,10 @@
-import { router } from '@kit.ArkUI';
+import { SafeAreaInsets } from '../../common/layout/SafeAreaInsets';
 import { HistoryService } from '../../common/services/HistoryService';
+import { SecondaryPageHeader } from '../../common/components/SecondaryPageHeader';
 import { ReadingHistoryEntry } from '../../common/models/ComicModels';
 import { SysTheme } from '../../common/theme/SysTheme';
+import { ReaderLaunchUtil } from '../../common/utils/ReaderLaunchUtil';
+import { ImageCacheUtil } from '../../common/utils/ImageCacheUtil';
 
 /** 阅读历史 — 对应 upstream lib/pages/history_page.dart */
 @Entry
@@ -20,11 +23,7 @@ struct HistoryPage {
 
   build() {
     Column() {
-      Text($r('app.string.history'))
-        .fontSize(22)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(SysTheme.FONT_PRIMARY)
-        .padding(16)
+        SecondaryPageHeader({ title: $r('app.string.history') })
 
       if (this.entries.length === 0) {
         Text($r('app.string.empty_history'))
@@ -37,7 +36,7 @@ struct HistoryPage {
           ForEach(this.entries, (item: ReadingHistoryEntry) => {
             ListItem() {
               Row({ space: 12 }) {
-                Image(item.coverPath)
+                Image(ImageCacheUtil.resolveSync(item.coverPath))
                   .width(48)
                   .height(64)
                   .borderRadius(4)
@@ -57,31 +56,16 @@ struct HistoryPage {
                 .layoutWeight(1)
               }
               .padding(12)
-              .onClick(() => router.pushUrl({
-                url: 'pages/reader/ReaderPage',
-                params: {
-                  comicId: item.comicId,
-                  sourceKey: item.sourceKey,
-                  title: item.title,
-                  directory: item.directory,
-                  coverPath: item.coverPath,
-                  chapterId: item.chapterId,
-                  pageIndex: String(item.pageIndex)
-                }
-              }))
+              .onClick(() => ReaderLaunchUtil.openFromHistory(item))
             }
           }, (item: ReadingHistoryEntry) => `${item.sourceKey}_${item.comicId}_${item.updatedAt}`)
         }
         .layoutWeight(1)
       }
-
-      Button('返回')
-        .buttonStyle(ButtonStyleMode.EMPHASIZED)
-        .margin(16)
-        .onClick(() => router.back())
     }
     .width('100%')
     .height('100%')
+    .padding(SafeAreaInsets.pagePadding())
     .backgroundColor(SysTheme.BACKGROUND_PRIMARY)
   }
 }

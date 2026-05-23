@@ -1,106 +1,117 @@
 import { router } from '@kit.ArkUI';
 import { ComicSourceService } from '../../common/services/ComicSourceService';
-import { ComicSourceInfo } from '../../common/models/ComicModels';
 import { ShellInsets } from '../../common/layout/ShellInsets';
 import { SysTheme } from '../../common/theme/SysTheme';
+import { SingleExplorePanel } from './SingleExplorePanel';
+import { ENGINE_READY_KEY } from '../../common/constants/StartupKeys';
 
-/** 发现 — 对应 upstream lib/pages/explore_page.dart */
+/**
+ * 发现 — 对齐 upstream explore_page.dart（explore_pages 多 Tab）。
+ * 漫画源管理见 ComicSourcePage。
+ */
 @Component
 export struct ExplorePage {
   scroller: Scroller = new Scroller();
-  @State sources: ComicSourceInfo[] = [];
-  @State refreshing: boolean = false;
-  @State cachedCount: number = 0;
+  @State pages: string[] = [];
+  @State exploreTabIndex: number = 0;
+  @State refreshToken: number = 0;
+  @StorageLink(ENGINE_READY_KEY) @Watch('onEngineReadyChanged') engineReady: boolean = false;
 
   aboutToAppear(): void {
-    this.reload();
+    this.tryReloadPages();
   }
 
-  reload(): void {
-    this.sources = ComicSourceService.getInstance().getSources();
-    this.cachedCount = ComicSourceService.getInstance().getCachedScriptCount();
+  onPageShow(): void {
+    this.tryReloadPages();
+  }
+
+  onEngineReadyChanged(): void {
+    this.tryReloadPages();
+  }
+
+  private tryReloadPages(): void {
+    if (!this.engineReady) {
+      return;
+    }
+    this.reloadPages();
+  }
+
+  private reloadPages(): void {
+    ComicSourceService.getInstance().getConfiguredExplorePages().then((pages: string[]) => {
+      this.pages = pages;
+      if (this.exploreTabIndex >= this.pages.length) {
+        this.exploreTabIndex = 0;
+      }
+    });
+  }
+
+  private refreshCurrentTab(): void {
+    this.refreshToken++;
   }
 
   build() {
-    Scroll(this.scroller) {
-      Column() {
-        Row({ space: 8 }) {
-          Text($r('app.string.explore_sources_count'))
-            .fontSize(13)
-            .fontColor(SysTheme.FONT_SECONDARY)
-            .layoutWeight(1)
-          if (this.refreshing) {
-            LoadingProgress().width(20).height(20)
-          } else {
-            Button($r('app.string.refresh_sources'))
-              .type(ButtonType.Capsule)
-              .height(32)
-              .onClick(async () => {
-                this.refreshing = true;
-                await ComicSourceService.getInstance().refreshIndex();
-                this.reload();
-                this.refreshing = false;
-              })
-          }
-        }
-        .width('100%')
-        .padding({ left: 16, right: 16, top: 8, bottom: 4 })
-
-        if (this.sources.length === 0) {
-          Text($r('app.string.explore_loading'))
-            .fontSize(14)
-            .fontColor(SysTheme.FONT_SECONDARY)
-            .width('100%')
-            .padding({ left: 16, right: 16, top: 8 })
-        } else {
-          List() {
-            ForEach(this.sources, (src: ComicSourceInfo) => {
-              ListItem() {
-                Column() {
-                  Row() {
-                    Text(src.name)
-                      .fontSize(16)
-                      .fontColor(SysTheme.FONT_PRIMARY)
-                      .layoutWeight(1)
-                    if (ComicSourceService.getInstance().isSourceCached(src.key)) {
-                      Text($r('app.string.source_cached'))
-                        .fontSize(11)
-                        .fontColor(SysTheme.EMPHASIZE)
-                    }
-                  }
-                  .width('100%')
-                  Text(src.description)
-                    .fontSize(12)
-                    .fontColor(SysTheme.FONT_SECONDARY)
-                    .maxLines(2)
-                    .margin({ top: 4 })
-                }
-                .alignItems(HorizontalAlign.Start)
-                .padding(16)
-                .width('100%')
-                .backgroundColor(SysTheme.BACKGROUND_SECONDARY)
-                .borderRadius(12)
-                .margin({ left: 16, right: 16, bottom: 8 })
-                .onClick(() => router.pushUrl({
-                  url: 'pages/search/SearchPage',
-                  params: { sourceKey: src.key, sourceName: src.name }
-                }))
-              }
-            }, (src: ComicSourceInfo) => src.key)
-          }
-          .width('100%')
+    Column() {
+      Row({ space: 8 }) {
+        Button($r('app.string.comic_sources'))
+          .type(ButtonType.Capsule)
+          .height(32)
+          .fontSize(12)
+          .onClick(() => router.pushUrl({ url: 'pages/sources/ComicSourcePage' }))
+        Button($r('app.string.explore_add_pages'))
+          .type(ButtonType.Capsule)
+          .height(32)
+          .fontSize(12)
+          .onClick(() => router.pushUrl({ url: 'pages/explore/ExplorePagesPickerPage' }))
+        Blank()
+        if (this.pages.length > 0) {
+          Button($r('app.string.refresh_sources'))
+            .type(ButtonType.Capsule)
+            .height(32)
+            .fontSize(12)
+            .onClick(() => this.refreshCurrentTab())
         }
       }
       .width('100%')
-      .padding({
-        top: 8,
-        bottom: ShellInsets.FLOATING_BAR_RESERVE
-      })
+      .padding({ left: 16, right: 16, top: 8, bottom: 4 })
+
+      if (this.pages.length === 0) {
+        Column({ space: 12 }) {
+          Text($r('app.string.explore_no_pages'))
+            .fontSize(14)
+            .fontColor(SysTheme.FONT_SECONDARY)
+            .textAlign(TextAlign.Center)
+          Button($r('app.string.explore_add_pages'))
+            .type(ButtonType.Capsule)
+            .onClick(() => router.pushUrl({ url: 'pages/explore/ExplorePagesPickerPage' }))
+          Button($r('app.string.comic_sources'))
+            .type(ButtonType.Normal)
+            .onClick(() => router.pushUrl({ url: 'pages/sources/ComicSourcePage' }))
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .justifyContent(FlexAlign.Center)
+        .padding(24)
+      } else {
+        Tabs({ index: this.exploreTabIndex }) {
+          ForEach(this.pages, (title: string) => {
+            TabContent() {
+              SingleExplorePanel({
+                pageTitle: title,
+                scroller: this.scroller,
+                refreshTick: this.refreshToken
+              })
+            }.tabBar(title)
+          }, (title: string) => title)
+        }
+        .barMode(BarMode.Scrollable)
+        .onChange((index: number) => {
+          this.exploreTabIndex = index;
+        })
+        .layoutWeight(1)
+      }
     }
-    .clipContent(ContentClipMode.SAFE_AREA)
     .width('100%')
     .height('100%')
-    .scrollBar(BarState.Off)
-    .edgeEffect(EdgeEffect.Spring)
+    .padding({ bottom: ShellInsets.FLOATING_BAR_RESERVE })
   }
 }

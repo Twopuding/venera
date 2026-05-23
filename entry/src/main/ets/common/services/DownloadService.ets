@@ -4,6 +4,7 @@ import { common } from '@kit.AbilityKit';
 import { DownloadTask } from '../models/ComicModels';
 import { HttpService } from './HttpService';
 import { AppConstants } from '../constants/AppConstants';
+import { ImageCacheUtil } from '../utils/ImageCacheUtil';
 
 /**
  * Download queue — port of upstream network/download.dart.
@@ -62,6 +63,32 @@ export class DownloadService {
     this.processQueue();
   }
 
+  async removeTask(taskId: string): Promise<void> {
+    this.tasks = this.tasks.filter((t: DownloadTask) => t.id !== taskId);
+    await this.persist();
+    this.notify();
+  }
+
+  async retryTask(taskId: string): Promise<void> {
+    const task = this.tasks.find((t: DownloadTask) => t.id === taskId);
+    if (!task || task.status !== 'failed') {
+      return;
+    }
+    task.status = 'pending';
+    task.progress = 0;
+    task.downloadedBytes = 0;
+    task.totalBytes = 0;
+    await this.persist();
+    this.notify();
+    this.processQueue();
+  }
+
+  async clearCompleted(): Promise<void> {
+    this.tasks = this.tasks.filter((t: DownloadTask) => t.status !== 'completed');
+    await this.persist();
+    this.notify();
+  }
+
   private async processQueue(): Promise<void> {
     if (this.processing) {
       return;
@@ -80,16 +107,25 @@ export class DownloadService {
           continue;
         }
         pending.status = 'downloading';
-        pending.destPath = `${this.downloadsPath}/${pending.id}.dat`;
+        const ext = ImageCacheUtil.extensionFromUrl(pending.resourceUrl);
+        pending.destPath = `${this.downloadsPath}/${pending.id}${ext}`;
         this.notify();
         try {
-          await HttpService.getInstance().downloadFile(pending.resourceUrl, pending.destPath,
-            (received: number, total: number) => {
-              pending.downloadedBytes = received;
-              pending.totalBytes = total;
-              pending.progress = total > 0 ? Math.min(99, Math.floor(received * 100 / total)) : 0;
-              this.notify();
-            });
+          if (pending.resourceUrl.startsWith('file://')) {
+            const src = pending.resourceUrl.substring(7);
+            fileIo.copyFileSync(src, pending.destPath);
+            const stat = fileIo.statSync(pending.destPath);
+            pending.downloadedBytes = stat.size;
+            pending.totalBytes = stat.size;
+          } else {
+            await HttpService.getInstance().downloadFile(pending.resourceUrl, pending.destPath,
+              (received: number, total: number) => {
+                pending.downloadedBytes = received;
+                pending.totalBytes = total;
+                pending.progress = total > 0 ? Math.min(99, Math.floor(received * 100 / total)) : 0;
+                this.notify();
+              });
+          }
           pending.progress = 100;
           pending.status = 'completed';
         } catch (_e) {

@@ -95,4 +95,10 @@ export class JsCookieStore {
     this.cache = copy;
     this.persist();
   }
+
+  /** 清空全部持久化 Cookie（设置页「清除登录数据」） */
+  clearAll(): void {
+    this.cache = {};
+    this.persist();
+  }
 }

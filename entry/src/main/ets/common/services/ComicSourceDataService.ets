@@ -81,15 +81,46 @@ export class ComicSourceDataService {
     return val === undefined ? null : val;
   }
 
+  saveSetting(sourceKey: string, settingKey: string, value: Object): void {
+    const setting = this.loadData(sourceKey, 'settings');
+    const store: Record<string, Object> = {};
+    if (setting !== null && typeof setting === 'object') {
+      const keys = Object.keys(setting as Record<string, Object>);
+      for (let i = 0; i < keys.length; i++) {
+        const k = keys[i];
+        store[k] = (setting as Record<string, Object>)[k];
+      }
+    }
+    store[settingKey] = value;
+    this.saveData(sourceKey, 'settings', store);
+  }
+
   isLogged(sourceKey: string): boolean {
+    const account = this.loadData(sourceKey, 'account');
+    if (account !== null && account !== undefined) {
+      if (typeof account === 'string') {
+        return account.length > 0;
+      }
+      if (Array.isArray(account)) {
+        return account.length > 0;
+      }
+      return true;
+    }
     const token = this.loadData(sourceKey, 'token');
-    if (token === null) {
-      return false;
+    if (token !== null && `${token}`.length > 0) {
+      return true;
     }
-    if (typeof token === 'string') {
-      return token.length > 0;
+    const uid = this.loadData(sourceKey, 'uid');
+    if (uid !== null && `${uid}`.length > 0) {
+      return true;
     }
-    return true;
+    return false;
+  }
+
+  logout(sourceKey: string): void {
+    this.deleteData(sourceKey, 'account');
+    this.deleteData(sourceKey, '_localStorage');
+    this.deleteData(sourceKey, 'token');
   }
 
   saveData(sourceKey: string, dataKey: string, data: Object | undefined): void {
@@ -103,6 +134,14 @@ export class ComicSourceDataService {
     const store = this.readStore(sourceKey);
     store[dataKey] = data;
     this.writeStore(sourceKey, store);
+  }
+
+  clearSourceData(sourceKey: string): void {
+    try {
+      fileIo.unlinkSync(this.filePath(sourceKey));
+    } catch (_e) {
+      // ignore
+    }
   }
 
   deleteData(sourceKey: string, dataKey: string): void {

@@ -1,8 +1,11 @@
+import { SafeAreaInsets } from '../../common/layout/SafeAreaInsets';
 import { router } from '@kit.ArkUI';
 import { LocalComicService } from '../../common/services/LocalComicService';
 import { HistoryService } from '../../common/services/HistoryService';
 import { LocalComicChapter, LocalComicItem } from '../../common/models/ComicModels';
 import { SysTheme } from '../../common/theme/SysTheme';
+import { SecondaryPageHeader } from '../../common/components/SecondaryPageHeader';
+import { ReaderLaunchUtil } from '../../common/utils/ReaderLaunchUtil';
 
 /** 本地漫画详情 — 多章节选择后进入阅读器 */
 @Entry
@@ -16,26 +19,12 @@ struct LocalComicDetailPage {
     this.comic = LocalComicService.getInstance().getComicById(id) ?? null;
   }
 
-  private openReader(chapterId: string, pageIndex: number): void {
-    if (!this.comic) {
-      return;
-    }
-    router.pushUrl({
-      url: 'pages/reader/ReaderPage',
-      params: {
-        comicId: this.comic.id,
-        sourceKey: 'local',
-        title: this.comic.title,
-        directory: this.comic.directory,
-        coverPath: this.comic.coverPath,
-        chapterId: chapterId,
-        pageIndex: String(pageIndex)
-      }
-    });
-  }
-
   build() {
     Column() {
+      SecondaryPageHeader({
+        title: this.comic ? this.comic.title : '本地漫画'
+      })
+
       if (this.comic) {
         Image(this.comic.coverPath)
           .width('100%')
@@ -70,7 +59,7 @@ struct LocalComicDetailPage {
                 .onClick(() => {
                   const hist = HistoryService.getInstance().find(this.comic!.id, 'local');
                   const page = (hist?.chapterId === ch.id) ? (hist?.pageIndex ?? 0) : 0;
-                  this.openReader(ch.id, page);
+                  ReaderLaunchUtil.openLocalComic(this.comic!, ch.id, page);
                 })
               }
             }, (ch: LocalComicChapter) => ch.id)
@@ -81,7 +70,7 @@ struct LocalComicDetailPage {
                 .padding(14)
                 .onClick(() => {
                   const hist = HistoryService.getInstance().find(this.comic!.id, 'local');
-                  this.openReader(hist?.chapterId ?? '', hist?.pageIndex ?? 0);
+                  ReaderLaunchUtil.openLocalComic(this.comic!, hist?.chapterId, hist?.pageIndex);
                 })
             }
           }
@@ -95,13 +84,10 @@ struct LocalComicDetailPage {
           .padding(16)
           .layoutWeight(1)
       }
-
-      Button('返回')
-        .margin(16)
-        .onClick(() => router.back())
     }
     .width('100%')
     .height('100%')
+    .padding(SafeAreaInsets.pagePadding())
     .backgroundColor(SysTheme.BACKGROUND_PRIMARY)
   }
 }

@@ -10,6 +10,10 @@ export class ImageCacheUtil {
   private static cacheDir: string = '';
   private static memoryHits: Map<string, string> = new Map();
 
+  static getCacheDir(): string {
+    return ImageCacheUtil.cacheDir;
+  }
+
   static init(context: common.UIAbilityContext): void {
     ImageCacheUtil.cacheDir = `${context.cacheDir}/reader_images`;
     try {
@@ -29,11 +33,11 @@ export class ImageCacheUtil {
     for (let i = 0; i < url.length; i++) {
       h = ((h << 5) - h + url.charCodeAt(i)) | 0;
     }
-    const ext = ImageCacheUtil.guessExtension(url);
+    const ext = ImageCacheUtil.extensionFromUrl(url);
     return `${Math.abs(h).toString(16)}${ext}`;
   }
 
-  private static guessExtension(url: string): string {
+  static extensionFromUrl(url: string): string {
     const q = url.indexOf('?');
     const path = q >= 0 ? url.substring(0, q) : url;
     const dot = path.lastIndexOf('.');
@@ -91,5 +95,25 @@ export class ImageCacheUtil {
       out.push(await ImageCacheUtil.ensureCached(urls[i]));
     }
     return out;
+  }
+
+  /** 清空阅读器图片磁盘缓存（API 23 沙箱 cacheDir） */
+  static clearDiskCache(): void {
+    ImageCacheUtil.memoryHits.clear();
+    if (ImageCacheUtil.cacheDir.length === 0) {
+      return;
+    }
+    try {
+      const names = fileIo.listFileSync(ImageCacheUtil.cacheDir);
+      for (let i = 0; i < names.length; i++) {
+        try {
+          fileIo.unlinkSync(`${ImageCacheUtil.cacheDir}/${names[i]}`);
+        } catch (_e) {
+          // skip
+        }
+      }
+    } catch (_e) {
+      // empty
+    }
   }
 }

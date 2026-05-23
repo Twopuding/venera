@@ -4,11 +4,19 @@ import { HttpService, HttpResponse } from './HttpService';
 import { ComicSourceDataService } from './ComicSourceDataService';
 import { JsCookieStore, JsCookieEntry } from './JsCookieStore';
 import { JsConvertUtil, JsConvertRequest } from '../utils/JsConvertUtil';
+import { JsNativeRuntime } from './JsNativeRuntime';
+import { JsHtmlDomService } from './JsHtmlDomService';
+import { JsUiBridge } from './JsUiBridge';
+import { JsImageService } from './JsImageService';
 
 /** init.js sendMessage 载荷（与上游 js_engine.dart 对齐的子集） */
 export interface JsMessagePayload {
   method?: string;
-  key?: string;
+  key?: string | number;
+  doc?: number;
+  query?: string;
+  id?: string;
+  message?: string;
   data_key?: string;
   setting_key?: string;
   data?: Object;
@@ -73,17 +81,21 @@ export class JsMessageHost {
         return null;
       }
       case 'load_data':
-        return ComicSourceDataService.getInstance().loadData(message.key ?? '', message.data_key ?? '');
+        return ComicSourceDataService.getInstance()
+          .loadData(JsMessageHost.sourceKey(message.key), message.data_key ?? '');
       case 'load_setting':
-        return ComicSourceDataService.getInstance().loadSetting(message.key ?? '', message.setting_key ?? '');
+        return ComicSourceDataService.getInstance()
+          .loadSetting(JsMessageHost.sourceKey(message.key), message.setting_key ?? '');
       case 'save_data':
-        ComicSourceDataService.getInstance().saveData(message.key ?? '', message.data_key ?? '', message.data);
+        ComicSourceDataService.getInstance()
+          .saveData(JsMessageHost.sourceKey(message.key), message.data_key ?? '', message.data);
         return null;
       case 'delete_data':
-        ComicSourceDataService.getInstance().deleteData(message.key ?? '', message.data_key ?? '');
+        ComicSourceDataService.getInstance()
+          .deleteData(JsMessageHost.sourceKey(message.key), message.data_key ?? '');
         return null;
       case 'isLogged':
-        return ComicSourceDataService.getInstance().isLogged(message.key ?? '');
+        return ComicSourceDataService.getInstance().isLogged(JsMessageHost.sourceKey(message.key));
       case 'cookie':
         return this.handleCookie(message);
       case 'uuid':
@@ -97,6 +109,15 @@ export class JsMessageHost {
         return 'harmonyos';
       case 'getLocale':
         return 'zh_CN';
+      case 'compute':
+        console.warn('[JsMessageHost] compute reached ArkTS sync path; use native QuickJS handler');
+        return null;
+      case 'html':
+        return JsHtmlDomService.getInstance().handle(message as Record<string, Object>);
+      case 'UI':
+        return JsUiBridge.handle(message as Record<string, Object>);
+      case 'image':
+        return JsImageService.getInstance().handle(message as Record<string, Object>);
       default:
         return null;
     }
@@ -112,17 +133,21 @@ export class JsMessageHost {
       case 'convert':
         return await JsConvertUtil.handle(this.toConvertRequest(message));
       case 'load_data':
-        return ComicSourceDataService.getInstance().loadData(message.key ?? '', message.data_key ?? '');
+        return ComicSourceDataService.getInstance()
+          .loadData(JsMessageHost.sourceKey(message.key), message.data_key ?? '');
       case 'load_setting':
-        return ComicSourceDataService.getInstance().loadSetting(message.key ?? '', message.setting_key ?? '');
+        return ComicSourceDataService.getInstance()
+          .loadSetting(JsMessageHost.sourceKey(message.key), message.setting_key ?? '');
       case 'save_data':
-        ComicSourceDataService.getInstance().saveData(message.key ?? '', message.data_key ?? '', message.data);
+        ComicSourceDataService.getInstance()
+          .saveData(JsMessageHost.sourceKey(message.key), message.data_key ?? '', message.data);
         return null;
       case 'delete_data':
-        ComicSourceDataService.getInstance().deleteData(message.key ?? '', message.data_key ?? '');
+        ComicSourceDataService.getInstance()
+          .deleteData(JsMessageHost.sourceKey(message.key), message.data_key ?? '');
         return null;
       case 'isLogged':
-        return ComicSourceDataService.getInstance().isLogged(message.key ?? '');
+        return ComicSourceDataService.getInstance().isLogged(JsMessageHost.sourceKey(message.key));
       case 'cookie':
         return this.handleCookie(message);
       case 'uuid':
@@ -136,16 +161,19 @@ export class JsMessageHost {
         return 'harmonyos';
       case 'getLocale':
         return 'zh_CN';
+      case 'compute':
+        console.warn('[JsMessageHost] compute reached ArkTS async path; use native QuickJS handler');
+        return null;
       case 'setClipboard':
         return await this.setClipboard(message.text ?? '');
       case 'getClipboard':
         return await this.getClipboard();
       case 'html':
-      case 'image':
+        return JsHtmlDomService.getInstance().handle(message as Record<string, Object>);
       case 'UI':
-      case 'compute':
-        console.warn(`[JsMessageHost] ${method} stub — awaiting QuickJS/UI bridge`);
-        return null;
+        return await JsUiBridge.handleAsync(message as Record<string, Object>);
+      case 'image':
+        return JsImageService.getInstance().handle(message as Record<string, Object>);
       default:
         console.warn(`[JsMessageHost] unhandled method: ${method}`);
         return null;
@@ -161,10 +189,18 @@ export class JsMessageHost {
       value: message.value,
       hash: message.hash
     };
-    if (message.key !== undefined) {
+    if (typeof message.key === 'string') {
       req.key = message.key;
     }
     return req;
+  }
+
+  /** 漫画源 key 恒为字符串；html 消息的 numeric key 不传入数据层 */
+  private static sourceKey(key: string | number | undefined): string {
+    if (key === undefined) {
+      return '';
+    }
+    return typeof key === 'string' ? key : '';
   }
 
   private async handleHttp(message: JsMessagePayload): Promise<JsHttpResult> {

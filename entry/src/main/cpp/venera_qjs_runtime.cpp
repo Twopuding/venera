@@ -1,6 +1,7 @@
 #include "venera_qjs_runtime.h"
 
 #include "venera_http.h"
+#include "venera_convert.h"
 
 #include <condition_variable>
 #include <cstdlib>
@@ -40,6 +41,8 @@ struct BridgeCall {
 };
 
 static VeneraQjsRuntime *g_active = nullptr;
+/** QuickJS 上下文非线程安全；load/eval 可能在不同 worker 上并发，需串行化。 */
+static std::recursive_mutex g_qjs_mu;
 
 static std::string js_value_to_string(JSContext *ctx, JSValue val)
 {
@@ -124,6 +127,10 @@ static std::string extract_field_string(const std::string &json, const char *fie
     return json.substr(pos + 1, end - pos - 1);
 }
 
+static JSValue resolve_eval_result(JSContext *ctx, JSValue val);
+static std::string venera_compute_on_context_unlocked(JSContext *ctx, const std::string &requestJson);
+static std::string venera_compute_on_context(JSContext *ctx, const std::string &requestJson);
+
 static void tsfn_callback(napi_env env, napi_value js_callback, void * /*context*/, void *data)
 {
     BridgeCall *call = static_cast<BridgeCall *>(data);
@@ -181,7 +188,12 @@ static JSValue js_send_message(JSContext *ctx, JSValueConst /*this_val*/, int ar
     if (method == "http") {
         responseJson = venera_http_message_json(requestJson);
     } else if (method == "convert") {
-        responseJson = call_arkts_handler(g_active, requestJson);
+        const std::string convertType = extract_field_string(requestJson, "type");
+        if (convertType == "utf8" || convertType == "gbk") {
+            responseJson = call_arkts_handler(g_active, requestJson);
+        } else {
+            responseJson = venera_convert_message_json(requestJson);
+        }
     } else if (method == "delay") {
         int ms = 0;
         size_t pos = requestJson.find("\"time\"");
@@ -197,6 +209,8 @@ static JSValue js_send_message(JSContext *ctx, JSValueConst /*this_val*/, int ar
 #endif
         }
         return JS_NULL;
+    } else if (method == "compute" && g_active != nullptr && g_active->jsContext != nullptr) {
+        responseJson = venera_compute_on_context_unlocked(g_active->jsContext, requestJson);
     } else {
         responseJson = call_arkts_handler(g_active, requestJson);
     }
@@ -212,7 +226,7 @@ static void install_globals(JSContext *ctx, const std::string &appVersion)
     JS_FreeValue(ctx, global);
 }
 
-static bool run_script(JSContext *ctx, const std::string &script, const char *filename)
+static bool run_script_unlocked(JSContext *ctx, const std::string &script, const char *filename)
 {
     JSValue val = JS_Eval(ctx, script.c_str(), script.size(), filename, JS_EVAL_TYPE_GLOBAL);
     if (JS_IsException(val)) {
@@ -229,9 +243,93 @@ static bool run_script(JSContext *ctx, const std::string &script, const char *fi
     return true;
 }
 
-static JSValue eval_expression(JSContext *ctx, const std::string &script, const char *filename)
+static bool run_script(JSContext *ctx, const std::string &script, const char *filename)
+{
+    std::lock_guard<std::recursive_mutex> lock(g_qjs_mu);
+    return run_script_unlocked(ctx, script, filename);
+}
+
+static JSValue eval_expression_unlocked(JSContext *ctx, const std::string &script, const char *filename)
 {
     return JS_Eval(ctx, script.c_str(), script.size(), filename, JS_EVAL_TYPE_GLOBAL);
+}
+
+static JSValue resolve_eval_result(JSContext *ctx, JSValue val)
+{
+    JSPromiseStateEnum promiseState = JS_PromiseState(ctx, val);
+    if (promiseState == (JSPromiseStateEnum)(-1)) {
+        return val;
+    }
+    JSRuntime *jsrt = JS_GetRuntime(ctx);
+    for (int i = 0; i < 20000; i++) {
+        JSPromiseStateEnum state = JS_PromiseState(ctx, val);
+        if (state == JS_PROMISE_FULFILLED) {
+            JSValue settled = JS_PromiseResult(ctx, val);
+            JS_FreeValue(ctx, val);
+            return settled;
+        }
+        if (state == JS_PROMISE_REJECTED) {
+            JSValue settled = JS_PromiseResult(ctx, val);
+            JS_FreeValue(ctx, val);
+            return settled;
+        }
+        JSContext *pctx = nullptr;
+        while (JS_ExecutePendingJob(jsrt, &pctx) > 0) {
+        }
+    }
+    return val;
+}
+
+static std::string venera_compute_on_context_unlocked(JSContext *ctx, const std::string &requestJson)
+{
+    JSValue root = JS_ParseJSON(ctx, requestJson.c_str(), requestJson.size(), "<compute-req>");
+    if (JS_IsException(root)) {
+        JSValue err = JS_GetException(ctx);
+        std::string out = js_value_to_string(ctx, err);
+        JS_FreeValue(ctx, err);
+        return out;
+    }
+    JSValue funcStrVal = JS_GetPropertyStr(ctx, root, "function");
+    JSValue argsVal = JS_GetPropertyStr(ctx, root, "args");
+    JS_FreeValue(ctx, root);
+    if (!JS_IsString(funcStrVal)) {
+        JS_FreeValue(ctx, funcStrVal);
+        JS_FreeValue(ctx, argsVal);
+        return "null";
+    }
+    std::string quotedJson = js_value_to_string(ctx, funcStrVal);
+    JS_FreeValue(ctx, funcStrVal);
+    std::string evalFn = "(function(){var fn;try{fn=eval(" + quotedJson +
+        ");}catch(e1){try{fn=eval('('+(" + quotedJson + ")+')');}catch(e2){throw e2;}}"
+        "if(typeof fn!=='function'){throw new Error('compute: not a function');}return fn;})()";
+    JSValue fnVal = eval_expression_unlocked(ctx, evalFn, "<compute-fn>");
+    if (JS_IsException(fnVal)) {
+        JSValue err = JS_GetException(ctx);
+        std::string out = js_value_to_string(ctx, err);
+        JS_FreeValue(ctx, err);
+        JS_FreeValue(ctx, argsVal);
+        return out;
+    }
+    JSValue callArgs[1] = { argsVal };
+    JSValue result = JS_Call(ctx, fnVal, JS_UNDEFINED, 1, callArgs);
+    JS_FreeValue(ctx, fnVal);
+    JS_FreeValue(ctx, argsVal);
+    if (JS_IsException(result)) {
+        JSValue err = JS_GetException(ctx);
+        std::string out = js_value_to_string(ctx, err);
+        JS_FreeValue(ctx, err);
+        return out;
+    }
+    JSValue settled = resolve_eval_result(ctx, result);
+    std::string out = js_value_to_string(ctx, settled);
+    JS_FreeValue(ctx, settled);
+    return out;
+}
+
+static std::string venera_compute_on_context(JSContext *ctx, const std::string &requestJson)
+{
+    std::lock_guard<std::recursive_mutex> lock(g_qjs_mu);
+    return venera_compute_on_context_unlocked(ctx, requestJson);
 }
 
 } // namespace
@@ -273,11 +371,12 @@ bool venera_qjs_init(VeneraQjsRuntime *rt, const std::string &initJs, const std:
     if (rt == nullptr) {
         return false;
     }
+    std::lock_guard<std::recursive_mutex> lock(g_qjs_mu);
     g_active = rt;
     rt->jsRuntime = JS_NewRuntime();
     rt->jsContext = JS_NewContext(rt->jsRuntime);
     install_globals(rt->jsContext, appVersion);
-    if (!run_script(rt->jsContext, initJs, "<init.js>")) {
+    if (!run_script_unlocked(rt->jsContext, initJs, "<init.js>")) {
         return false;
     }
     rt->inited = true;
@@ -341,42 +440,18 @@ bool venera_qjs_load_source(VeneraQjsRuntime *rt, const std::string &sourceKey, 
 
 static std::string eval_on_context(VeneraQjsRuntime *rt, const std::string &script, const char *filename)
 {
+    std::lock_guard<std::recursive_mutex> lock(g_qjs_mu);
     JSContext *ctx = rt->jsContext;
-    JSValue val = eval_expression(ctx, script, filename);
+    JSValue val = eval_expression_unlocked(ctx, script, filename);
     if (JS_IsException(val)) {
         JSValue err = JS_GetException(ctx);
         std::string out = js_value_to_string(ctx, err);
         JS_FreeValue(ctx, err);
         return out;
     }
-    JSPromiseStateEnum promiseState = JS_PromiseState(ctx, val);
-    if (promiseState != (JSPromiseStateEnum)(-1)) {
-        JSRuntime *jsrt = JS_GetRuntime(ctx);
-        for (int i = 0; i < 20000; i++) {
-            JSPromiseStateEnum state = JS_PromiseState(ctx, val);
-            if (state == JS_PROMISE_FULFILLED) {
-                JSValue settled = JS_PromiseResult(ctx, val);
-                std::string out = js_value_to_string(ctx, settled);
-                JS_FreeValue(ctx, settled);
-                JS_FreeValue(ctx, val);
-                return out;
-            }
-            if (state == JS_PROMISE_REJECTED) {
-                JSValue settled = JS_PromiseResult(ctx, val);
-                std::string out = js_value_to_string(ctx, settled);
-                JS_FreeValue(ctx, settled);
-                JS_FreeValue(ctx, val);
-                return out;
-            }
-            JSContext *pctx = nullptr;
-            while (JS_ExecutePendingJob(jsrt, &pctx) > 0) {
-            }
-        }
-        JS_FreeValue(ctx, val);
-        return "null";
-    }
-    std::string out = js_value_to_string(ctx, val);
-    JS_FreeValue(ctx, val);
+    JSValue settled = resolve_eval_result(ctx, val);
+    std::string out = js_value_to_string(ctx, settled);
+    JS_FreeValue(ctx, settled);
     return out;
 }
 
@@ -386,10 +461,7 @@ std::string venera_qjs_eval_json(VeneraQjsRuntime *rt, const std::string &script
         return "null";
     }
     g_active = rt;
-    std::string result;
-    std::thread worker([&]() { result = eval_on_context(rt, script, filename); });
-    worker.join();
-    return result;
+    return eval_on_context(rt, script, filename);
 }
 
 void venera_qjs_reset_sources(VeneraQjsRuntime *rt)
@@ -397,5 +469,6 @@ void venera_qjs_reset_sources(VeneraQjsRuntime *rt)
     if (rt == nullptr || !rt->inited) {
         return;
     }
-    run_script(rt->jsContext, "ComicSource.sources = {};", "<reset>");
+    std::lock_guard<std::recursive_mutex> lock(g_qjs_mu);
+    run_script_unlocked(rt->jsContext, "ComicSource.sources = {};", "<reset>");
 }

@@ -15,9 +15,9 @@ import { SysTheme } from '../../common/theme/SysTheme';
 @Component
 export struct MainShell {
   @State currentIndex: number = AppDataService.getInstance().settings.initialPage;
-  @State pageTitle: Resource = $r('app.string.local_library');
+  @State pageTitle: Resource = $r('app.string.tab_home');
   @State materialConfig: SystemMaterialConfig = MaterialEffectHelper.getTabsMaterial();
-  private scroller: Scroller = new Scroller();
+  @State categorySourceKey: string = '';
 
   aboutToAppear(): void {
     this.syncPageTitle(this.currentIndex);
@@ -29,7 +29,7 @@ export struct MainShell {
   private syncPageTitle(index: number): void {
     switch (index) {
       case 0:
-        this.pageTitle = $r('app.string.local_library');
+        this.pageTitle = $r('app.string.tab_home');
         break;
       case 1:
         this.pageTitle = $r('app.string.tab_favorites');
@@ -51,22 +51,24 @@ export struct MainShell {
       HdsNavigation() {
         HdsTabs({ index: this.currentIndex }) {
           TabContent() {
-            HomePage({ scroller: this.scroller })
+            HomePage()
           }.tabBar(this.tabItem($r('app.string.tab_home'), 0,
             $r('sys.symbol.house'), $r('sys.symbol.house_fill')))
 
           TabContent() {
-            FavoritesPage({ scroller: this.scroller })
+            FavoritesPage()
           }.tabBar(this.tabItem($r('app.string.tab_favorites'), 1,
             $r('sys.symbol.heart'), $r('sys.symbol.heart_fill')))
 
           TabContent() {
-            ExplorePage({ scroller: this.scroller })
+            ExplorePage()
           }.tabBar(this.tabItem($r('app.string.tab_explore'), 2,
             $r('sys.symbol.compass'), $r('sys.symbol.compass_circle_fill')))
 
           TabContent() {
-            CategoriesPage({ scroller: this.scroller })
+            CategoriesPage({
+              initialSourceKey: this.categorySourceKey
+            })
           }.tabBar(this.tabItem($r('app.string.tab_categories'), 3,
             $r('sys.symbol.square_grid_2x2'), $r('sys.symbol.square_fill_grid_2x2')))
         }
@@ -95,15 +97,7 @@ export struct MainShell {
         content: {
           title: { mainTitle: this.pageTitle },
           menu: {
-            value: [
-              {
-                content: {
-                  icon: $r('sys.symbol.clock'),
-                  action: () => {
-                    router.pushUrl({ url: 'pages/history/HistoryPage' });
-                  }
-                }
-              },
+            value: this.currentIndex !== 0 ? [
               {
                 content: {
                   icon: $r('sys.symbol.magnifyingglass'),
@@ -112,6 +106,15 @@ export struct MainShell {
                   }
                 }
               },
+              {
+                content: {
+                  icon: $r('sys.symbol.gearshape'),
+                  action: () => {
+                    router.pushUrl({ url: 'pages/settings/SettingsPage' });
+                  }
+                }
+              }
+            ] : [
               {
                 content: {
                   icon: $r('sys.symbol.gearshape'),
@@ -134,7 +137,6 @@ export struct MainShell {
       })
       .titleMode(HdsNavigationTitleMode.MINI)
       .hideBackButton(true)
-      .bindToScrollable([this.scroller])
       .layoutWeight(1)
     }
     .width('100%')

@@ -56,6 +56,30 @@ export class HistoryService {
     this.listeners.forEach((l: () => void) => l());
   }
 
+  /** WebDAV 拉取后合并历史（按 comicId+sourceKey，保留较新 updatedAt） */
+  async mergeFromRemote(remote: ReadingHistoryEntry[]): Promise<void> {
+    const map = new Map<string, ReadingHistoryEntry>();
+    for (let i = 0; i < this.entries.length; i++) {
+      const e = this.entries[i];
+      map.set(`${e.sourceKey}::${e.comicId}`, e);
+    }
+    for (let i = 0; i < remote.length; i++) {
+      const r = remote[i];
+      const key = `${r.sourceKey}::${r.comicId}`;
+      const existing = map.get(key);
+      if (!existing || r.updatedAt > existing.updatedAt) {
+        map.set(key, r);
+      }
+    }
+    this.entries = Array.from(map.values());
+    this.entries.sort((a: ReadingHistoryEntry, b: ReadingHistoryEntry) => b.updatedAt - a.updatedAt);
+    if (this.entries.length > 200) {
+      this.entries = this.entries.slice(0, 200);
+    }
+    await this.persist();
+    this.listeners.forEach((l: () => void) => l());
+  }
+
   private async persist(): Promise<void> {
     if (!this.prefStore) {
       return;
