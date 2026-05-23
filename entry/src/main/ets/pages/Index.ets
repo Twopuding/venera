@@ -1,13 +1,16 @@
 import { common } from '@kit.AbilityKit';
 import { MainShell } from './main/MainShell';
 import { GlobalLoadingOverlay } from '../common/components/GlobalLoadingOverlay';
+import { StartupSplash } from '../common/components/StartupSplash';
 import { SysTheme } from '../common/theme/SysTheme';
 import { LOADING_VISIBLE_KEY, LOADING_ID_KEY } from '../common/constants/UiDialogKeys';
 import { AppBootstrap } from '../common/services/AppBootstrap';
+import { ENGINE_READY_KEY } from '../common/constants/StartupKeys';
 
 @Entry
 @Component
 struct Index {
+  @StorageLink(ENGINE_READY_KEY) engineReady: boolean = false;
   private deferredBoot: boolean = false;
 
   aboutToAppear(): void {
@@ -30,6 +33,10 @@ struct Index {
       .backgroundColor(SysTheme.BACKGROUND_PRIMARY)
 
       GlobalLoadingOverlay()
+
+      if (!this.engineReady) {
+        StartupSplash()
+      }
     }
     .width('100%')
     .height('100%')

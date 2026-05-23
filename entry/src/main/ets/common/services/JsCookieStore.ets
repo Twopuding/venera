@@ -1,6 +1,7 @@
 import { fileIo } from '@kit.CoreFileKit';
 import { common } from '@kit.AbilityKit';
 import { AppConstants } from '../constants/AppConstants';
+import { FileIoUtil } from '../utils/FileIoUtil';
 
 /** 漫画源 HTTP Cookie 条目（与 init.js Cookie 结构兼容的子集） */
 export interface JsCookieEntry {
@@ -26,11 +27,21 @@ export class JsCookieStore {
   }
 
   init(context: common.UIAbilityContext): void {
-    this.storePath = `${context.filesDir}/${AppConstants.COMIC_SOURCES_DIR}/cookies.json`;
+    const dir = `${context.filesDir}/${AppConstants.COMIC_SOURCES_DIR}`;
+    try {
+      fileIo.mkdirSync(dir, true);
+    } catch (_e) {
+      // exists
+    }
+    this.storePath = `${dir}/cookies.json`;
     this.loadFromDisk();
   }
 
   private loadFromDisk(): void {
+    if (!FileIoUtil.existsSync(this.storePath)) {
+      this.cache = {};
+      return;
+    }
     try {
       const file = fileIo.openSync(this.storePath, fileIo.OpenMode.READ_ONLY);
       const stat = fileIo.statSync(this.storePath);

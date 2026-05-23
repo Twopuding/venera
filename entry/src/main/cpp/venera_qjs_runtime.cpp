@@ -366,21 +366,50 @@ void venera_qjs_destroy(VeneraQjsRuntime *rt)
     delete rt;
 }
 
-bool venera_qjs_init(VeneraQjsRuntime *rt, const std::string &initJs, const std::string &appVersion)
+bool venera_qjs_prepare(VeneraQjsRuntime *rt, const std::string &appVersion)
 {
     if (rt == nullptr) {
         return false;
     }
     std::lock_guard<std::recursive_mutex> lock(g_qjs_mu);
+    if (rt->inited) {
+        return true;
+    }
     g_active = rt;
-    rt->jsRuntime = JS_NewRuntime();
-    rt->jsContext = JS_NewContext(rt->jsRuntime);
+    if (rt->jsRuntime == nullptr) {
+        rt->jsRuntime = JS_NewRuntime();
+    }
+    if (rt->jsContext == nullptr) {
+        rt->jsContext = JS_NewContext(rt->jsRuntime);
+    }
     install_globals(rt->jsContext, appVersion);
+    return true;
+}
+
+bool venera_qjs_is_handler_ready(VeneraQjsRuntime *rt)
+{
+    return rt != nullptr && rt->tsfn != nullptr;
+}
+
+bool venera_qjs_run_init_script(VeneraQjsRuntime *rt, const std::string &initJs)
+{
+    if (rt == nullptr || rt->jsContext == nullptr) {
+        return false;
+    }
+    std::lock_guard<std::recursive_mutex> lock(g_qjs_mu);
     if (!run_script_unlocked(rt->jsContext, initJs, "<init.js>")) {
         return false;
     }
     rt->inited = true;
     return true;
+}
+
+bool venera_qjs_init(VeneraQjsRuntime *rt, const std::string &initJs, const std::string &appVersion)
+{
+    if (!venera_qjs_prepare(rt, appVersion)) {
+        return false;
+    }
+    return venera_qjs_run_init_script(rt, initJs);
 }
 
 bool venera_qjs_register_handler(VeneraQjsRuntime *rt, void *envPtr, void *handlerRefPtr)

@@ -107,7 +107,7 @@ export class JsEngineBridge {
 
     if (this.initReady && JsNativeRuntime.isAvailable()) {
       await JsEngineBridge.yieldToUi();
-      this.runtimeReady = await JsNativeRuntime.initRuntime(this.initScript);
+      this.runtimeReady = JsNativeRuntime.initRuntime(this.initScript);
       console.info(`[JsEngineBridge] QuickJS runtime ready=${this.runtimeReady}`);
     }
 

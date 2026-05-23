@@ -11,39 +11,6 @@ namespace {
 VeneraQjsRuntime *g_runtime = nullptr;
 napi_threadsafe_function g_load_resolve_tsfn = nullptr;
 napi_threadsafe_function g_eval_resolve_tsfn = nullptr;
-napi_threadsafe_function g_init_resolve_tsfn = nullptr;
-
-struct InitRuntimeWork {
-    napi_deferred deferred = nullptr;
-    std::string initJs;
-    std::string appVersion;
-    bool ok = false;
-};
-
-void init_resolve_tsfn_callback(napi_env env, napi_value /*js_callback*/, void * /*context*/, void *data)
-{
-    InitRuntimeWork *work = static_cast<InitRuntimeWork *>(data);
-    if (work == nullptr || work->deferred == nullptr) {
-        delete work;
-        return;
-    }
-    napi_value result;
-    napi_get_boolean(env, work->ok, &result);
-    napi_resolve_deferred(env, work->deferred, result);
-    delete work;
-}
-
-void ensure_init_resolve_tsfn(napi_env env)
-{
-    if (g_init_resolve_tsfn != nullptr) {
-        return;
-    }
-    napi_value resourceName;
-    napi_create_string_utf8(env, "VeneraInitResolve", NAPI_AUTO_LENGTH, &resourceName);
-    napi_create_threadsafe_function(env, nullptr, nullptr, resourceName, 0, 1, nullptr, nullptr, nullptr,
-        init_resolve_tsfn_callback, &g_init_resolve_tsfn);
-}
-
 struct LoadSourceWork {
     napi_deferred deferred = nullptr;
     std::string key;
@@ -124,34 +91,37 @@ std::string napi_get_string(napi_env env, napi_value value)
     return out;
 }
 
-/** initRuntime：在 worker 线程执行 QuickJS 初始化，避免主线程长时间白屏 */
-napi_value NapiInitRuntime(napi_env env, napi_callback_info info)
+/** 创建 QuickJS 运行时与 global（不含 init.js），须在 registerMessageHandler 之前调用 */
+napi_value NapiPrepareRuntime(napi_env env, napi_callback_info info)
 {
-    size_t argc = 2;
-    napi_value args[2];
+    size_t argc = 1;
+    napi_value args[1];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
-    napi_value promise;
-    napi_deferred deferred;
-    napi_create_promise(env, &deferred, &promise);
-    ensure_init_resolve_tsfn(env);
-    if (g_init_resolve_tsfn == nullptr) {
-        napi_value f;
-        napi_get_boolean(env, false, &f);
-        napi_resolve_deferred(env, deferred, f);
-        return promise;
+    ensure_runtime();
+    std::string appVersion = argc > 0 ? napi_get_string(env, args[0]) : "1.0.0";
+    bool ok = venera_qjs_prepare(g_runtime, appVersion);
+    napi_value result;
+    napi_get_boolean(env, ok, &result);
+    return result;
+}
+
+/**
+ * 在主线程执行 init.js（须已 prepareRuntime + registerMessageHandler）。
+ * init.js 内 sendMessage 依赖 ArkTS 回调，不可在 worker 中先于 handler 注册执行。
+ */
+napi_value NapiRunInitScript(napi_env env, napi_callback_info info)
+{
+    size_t argc = 1;
+    napi_value args[1];
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    std::string initJs = argc > 0 ? napi_get_string(env, args[0]) : "";
+    bool ok = false;
+    if (g_runtime != nullptr && venera_qjs_is_handler_ready(g_runtime)) {
+        ok = venera_qjs_run_init_script(g_runtime, initJs);
     }
-    InitRuntimeWork *work = new InitRuntimeWork();
-    work->deferred = deferred;
-    work->initJs = napi_get_string(env, args[0]);
-    work->appVersion = argc > 1 ? napi_get_string(env, args[1]) : "1.0.0";
-    std::thread([work]() {
-        if (g_runtime == nullptr) {
-            g_runtime = venera_qjs_create();
-        }
-        work->ok = venera_qjs_init(g_runtime, work->initJs, work->appVersion);
-        napi_call_threadsafe_function(g_init_resolve_tsfn, work, napi_tsfn_blocking);
-    }).detach();
-    return promise;
+    napi_value result;
+    napi_get_boolean(env, ok, &result);
+    return result;
 }
 
 napi_value NapiRegisterHandler(napi_env env, napi_callback_info info)
@@ -269,7 +239,8 @@ napi_value NapiExtract7z(napi_env env, napi_callback_info info)
 napi_value Init(napi_env env, napi_value exports)
 {
     napi_property_descriptor desc[] = {
-        {"initRuntime", nullptr, NapiInitRuntime, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"prepareRuntime", nullptr, NapiPrepareRuntime, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"runInitScript", nullptr, NapiRunInitScript, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"registerMessageHandler", nullptr, NapiRegisterHandler, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"loadSource", nullptr, NapiLoadSource, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"evaluate", nullptr, NapiEvaluate, nullptr, nullptr, nullptr, napi_default, nullptr},

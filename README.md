@@ -64,8 +64,9 @@
 
 **最近更新（2026-05-23）**
 
+- **首次安装卡在「脚本引擎」修复**：`loadBundledIndex` 内 `syncExplorePagesFromSources` → `listExplorePageTitles` → `ensureEngineReady` 与进行中的 `initEngineAndIndex` 互相等待导致死锁；首启 index 加载不再同步 explore 页（装入图源后仍会 sync）；`JsCookieStore` 首启用 `accessSync` 探测 `cookies.json`，避免 async 上下文中 `openSync` 触发 `Pending exception`
 - **二级页安全区**：全屏窗口下 `SafeAreaInsets`（`getWindowAvoidArea` → AppStorage）为所有 router 二级页根布局增加顶/底内边距；`LocalLibraryPage` 补顶栏返回
-- **首次安装启动白屏**：首次冷启动在仍显示 `LaunchPage` 时执行 `AppBootstrap.runFirstLaunchPrep`（QuickJS + 默认图源），完成后再 `loadContent(Index)`，避免首次 AOT 编译主包时长时间纯白；`firstLaunchComplete` 持久化后后续启动仅快速进主界面
+- **首次安装卡在「脚本引擎」**：`initRuntime` 曾在 worker 中先于 `registerMessageHandler` 执行 `init.js`，`sendMessage` 无法回调主线程导致挂起；现改为 `prepareRuntime` → `registerMessageHandler` → 主线程 `runInitScript`；首次安装在 `Index` 上以 `StartupSplash` 遮罩显示进度
 - **启动纯白屏修复**：`LaunchPage` 零 Service import；`AppBootstrapLite` 仅 Preferences；系统启动窗与引导页同为浅灰 `card_background`
 - **启动白屏（JS 引擎）**：`initRuntime` 在 worker 线程异步执行；`ENGINE_READY_KEY` 控制发现/分类刷新时机
 - **启动加载引导**：`StartupSplash` 仅覆盖本地数据快速初始化（图标 + `LoadingProgress`），完成后立即进入主界面

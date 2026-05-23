@@ -106,7 +106,6 @@ export class ComicSourceService {
       return;
     }
     this.sources = ComicSourceService.parseIndexJson(json);
-    await this.syncExplorePagesFromSources();
     console.info('[ComicSourceService] index loaded from bundled rawfile');
   }
 
@@ -348,6 +347,12 @@ export class ComicSourceService {
   }
 
   async listExplorePageTitles(): Promise<string[]> {
+    if (!this.engineFullyReady && this.engineReadyPromise !== undefined) {
+      if (!JsEngineBridge.getInstance().getStatus().runtimeReady) {
+        return [];
+      }
+      return JsEngineBridge.getInstance().invokeListExplorePageTitles();
+    }
     await this.ensureEngineReady();
     return JsEngineBridge.getInstance().invokeListExplorePageTitles();
   }

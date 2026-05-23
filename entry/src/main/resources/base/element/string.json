@@ -34,6 +34,7 @@
     { "name": "startup_loading_data", "value": "正在加载本地数据…" },
     { "name": "startup_loading_sources", "value": "正在加载漫画源…" },
     { "name": "startup_loading_engine", "value": "正在启动脚本引擎…" },
+    { "name": "startup_loading_init_js", "value": "正在加载脚本库…" },
     { "name": "startup_first_install", "value": "首次启动，正在准备漫画引擎与图源…" },
     { "name": "explore_loading", "value": "正在加载源索引或暂无可用源…" },
     { "name": "categories_hint", "value": "安装漫画源后将显示分类（需 JS 引擎）" },

@@ -4,7 +4,7 @@ import { AppConstants } from '../constants/AppConstants';
 
 /**
  * QuickJS NAPI（libvenera_qjs.so，API 23）。
- * HTTP 由原生 HMS_Rcp_FetchSync 处理；其余 sendMessage 走 ArkTS 同步宿主。
+ * init.js 须在主线程执行，且先于 runInitScript 完成 registerMessageHandler。
  */
 export class JsNativeRuntime {
   private static handlerReady: boolean = false;
@@ -34,17 +34,26 @@ export class JsNativeRuntime {
     }
   }
 
-  static async initRuntime(initJs: string): Promise<boolean> {
+  static initRuntime(initJs: string): boolean {
     if (!JsNativeRuntime.isAvailable()) {
       return false;
     }
-    const ok = await qjs.initRuntime(initJs, AppConstants.HARMONY_VERSION) as boolean;
-    if (!ok) {
+    const version = AppConstants.HARMONY_VERSION;
+    if (!(qjs.prepareRuntime(version) as boolean)) {
+      console.error('[JsNativeRuntime] prepareRuntime failed');
       return false;
     }
     const registered = qjs.registerMessageHandler(JsNativeRuntime.handleMessageJson) as boolean;
-    JsNativeRuntime.handlerReady = registered;
-    return registered;
+    if (!registered) {
+      console.error('[JsNativeRuntime] registerMessageHandler failed');
+      return false;
+    }
+    const ok = qjs.runInitScript(initJs) as boolean;
+    JsNativeRuntime.handlerReady = ok;
+    if (!ok) {
+      console.error('[JsNativeRuntime] runInitScript failed');
+    }
+    return ok;
   }
 
   static async loadSource(sourceKey: string, script: string): Promise<boolean> {
@@ -67,7 +76,6 @@ export class JsNativeRuntime {
     }
   }
 
-  /** 7z/cb7 解压（需 LZMA SDK + extract7z NAPI） */
   static extract7z(archivePath: string, outDir: string): boolean {
     if (!JsNativeRuntime.isAvailable()) {
       return false;

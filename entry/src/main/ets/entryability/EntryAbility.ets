@@ -2,7 +2,6 @@ import { AbilityConstant, common, ConfigurationConstant, UIAbility, Want } from 
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import { AppBootstrapLite } from '../common/services/AppBootstrapLite';
-import { AppDataService } from '../common/services/AppDataService';
 import { ENGINE_READY_KEY, STARTUP_SPLASH_MESSAGE_KEY } from '../common/constants/StartupKeys';
 import {
   SAFE_AREA_BOTTOM_VP_KEY,
@@ -39,28 +38,21 @@ export default class EntryAbility extends UIAbility {
       });
       setTimeout(() => {
         this.openMainPage(windowStage);
-      }, 50);
+      }, 0);
     });
   }
 
-  private async openMainPage(windowStage: window.WindowStage): Promise<void> {
-    try {
-      await AppBootstrapLite.run(this.context);
-      if (!AppDataService.getInstance().isFirstLaunchComplete()) {
-        hilog.info(DOMAIN, TAG, 'First launch: running prep on LaunchPage');
-        const mod = await import('../common/services/AppBootstrap');
-        await mod.AppBootstrap.runFirstLaunchPrep(this.context);
-        await AppDataService.getInstance().markFirstLaunchComplete();
-      }
+  private openMainPage(windowStage: window.WindowStage): void {
+    AppBootstrapLite.run(this.context).then(() => {
       windowStage.loadContent('pages/Index', (loadErr) => {
         if (loadErr.code) {
           hilog.error(DOMAIN, TAG, 'Failed to load Index: %{public}s', JSON.stringify(loadErr));
         }
       });
-    } catch (e) {
-      hilog.error(DOMAIN, TAG, 'openMainPage failed: %{public}s', `${e}`);
+    }).catch((e: Error) => {
+      hilog.error(DOMAIN, TAG, 'BootstrapLite failed: %{public}s', `${e}`);
       windowStage.loadContent('pages/Index');
-    }
+    });
   }
 
   private static syncSafeAreaInsets(mainWindow: window.Window): void {

@@ -1,4 +1,5 @@
 import { common } from '@kit.AbilityKit';
+import { AppDataService } from './AppDataService';
 import { LocalComicService } from './LocalComicService';
 import { ComicSourceService } from './ComicSourceService';
 import { JsEngineBridge } from './JsEngineBridge';
@@ -12,9 +13,10 @@ import { JsCookieStore } from './JsCookieStore';
 import { TagTranslationService } from './TagTranslationService';
 import { ENGINE_READY_KEY, STARTUP_SPLASH_MESSAGE_KEY } from '../constants/StartupKeys';
 
-/** 主界面显示后的延迟初始化；首次安装时在 LaunchPage 上完成重型 prep */
+/** 主界面显示后的延迟初始化（含首次安装的引擎与图源装入） */
 export class AppBootstrap {
   private static deferredStarted: boolean = false;
+  private static readonly ENGINE_INIT_TIMEOUT_MS: number = 120000;
 
   private static setMessage(message: ResourceStr): void {
     AppStorage.setOrCreate(STARTUP_SPLASH_MESSAGE_KEY, message);
@@ -26,48 +28,16 @@ export class AppBootstrap {
     });
   }
 
-  /**
-   * 仅首次安装后执行：在仍显示 LaunchPage 时完成 QuickJS / 默认图源装入，
-   * 避免 loadContent(Index) 首次 AOT 编译时长时间白屏。
-   */
-  static async runFirstLaunchPrep(context: common.UIAbilityContext): Promise<void> {
-    if (AppBootstrap.deferredStarted) {
-      return;
-    }
-    AppBootstrap.deferredStarted = true;
-    AppStorage.setOrCreate(ENGINE_READY_KEY, false);
-    AppBootstrap.setMessage($r('app.string.startup_first_install'));
-    ImageCacheUtil.init(context);
-    JsUiBridge.init(context);
-    JsCookieStore.getInstance().init(context);
-    await ComicSourceService.getInstance().init(context);
-    await AppBootstrap.yieldToUi();
-    await MaterialEffectHelper.initialize();
-    await HistoryService.getInstance().init(context);
-    await LocalComicService.getInstance().init(context);
-    await FavoritesService.getInstance().init(context);
-    await DownloadService.getInstance().init(context);
-    TagTranslationService.init(context);
-    AppBootstrap.setMessage($r('app.string.startup_loading_engine'));
-    await AppBootstrap.yieldToUi();
-    await ComicSourceService.getInstance().ensureEngineReady();
-    AppBootstrap.setMessage($r('app.string.startup_loading_sources'));
-    await AppBootstrap.yieldToUi();
-    await ComicSourceService.getInstance().loadStagedScriptsFromDisk();
-    await ComicSourceService.getInstance().installDefaultSourceScripts(false);
-    await JsEngineBridge.getInstance().registerPendingStagedInBackground();
-    await ComicSourceService.getInstance().syncFromNetwork();
-    ComicSourceService.getInstance().markEngineFullyReady();
-    console.info('[AppBootstrap] first-launch prep complete');
-  }
-
-  /** 非首次冷启动：主界面显示后后台补齐（首次已在 prep 中完成） */
   static startupDeferred(context: common.UIAbilityContext): void {
     if (AppBootstrap.deferredStarted) {
       return;
     }
     AppBootstrap.deferredStarted = true;
     AppStorage.setOrCreate(ENGINE_READY_KEY, false);
+    const isFirstLaunch = !AppDataService.getInstance().isFirstLaunchComplete();
+    if (isFirstLaunch) {
+      AppBootstrap.setMessage($r('app.string.startup_first_install'));
+    }
     setTimeout(async () => {
       try {
         ImageCacheUtil.init(context);
@@ -80,16 +50,43 @@ export class AppBootstrap {
         await FavoritesService.getInstance().init(context);
         await DownloadService.getInstance().init(context);
         TagTranslationService.init(context);
-        await ComicSourceService.getInstance().ensureEngineReady();
+        AppBootstrap.setMessage($r('app.string.startup_loading_init_js'));
+        await AppBootstrap.yieldToUi();
+        AppBootstrap.setMessage($r('app.string.startup_loading_engine'));
+        await AppBootstrap.yieldToUi();
+        const engineOk = await AppBootstrap.ensureEngineWithTimeout(context);
+        if (!engineOk) {
+          console.error('[AppBootstrap] engine init failed or timeout, continuing');
+        }
+        AppBootstrap.setMessage($r('app.string.startup_loading_sources'));
+        await AppBootstrap.yieldToUi();
         await ComicSourceService.getInstance().loadStagedScriptsFromDisk();
         await ComicSourceService.getInstance().installDefaultSourceScripts(false);
         await JsEngineBridge.getInstance().registerPendingStagedInBackground();
         await ComicSourceService.getInstance().syncFromNetwork();
         ComicSourceService.getInstance().markEngineFullyReady();
+        if (isFirstLaunch) {
+          await AppDataService.getInstance().markFirstLaunchComplete();
+        }
         console.info('[AppBootstrap] deferred startup complete');
       } catch (e) {
         console.warn(`[AppBootstrap] deferred startup failed: ${e}`);
       }
     }, 100);
+  }
+
+  private static async ensureEngineWithTimeout(_context: common.UIAbilityContext): Promise<boolean> {
+    try {
+      await Promise.race([
+        ComicSourceService.getInstance().ensureEngineReady(),
+        new Promise<void>((_resolve, reject) => {
+          setTimeout(() => reject(new Error('engine init timeout')), AppBootstrap.ENGINE_INIT_TIMEOUT_MS);
+        })
+      ]);
+      return JsEngineBridge.getInstance().getStatus().runtimeReady;
+    } catch (e) {
+      console.error(`[AppBootstrap] ensureEngineReady: ${e}`);
+      return false;
+    }
   }
 }
