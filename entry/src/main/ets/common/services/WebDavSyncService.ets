@@ -68,7 +68,18 @@ export class WebDavSyncService {
         explorePages: settings.explorePages,
         comicSourceListUrl: settings.comicSourceListUrl,
         categoryPages: settings.categoryPages,
-        networkFavorites: settings.networkFavorites
+        networkFavorites: settings.networkFavorites,
+        defaultSearchTarget: settings.defaultSearchTarget,
+        followUpdatesFolder: settings.followUpdatesFolder,
+        autoAddLanguageFilter: settings.autoAddLanguageFilter,
+        comicDisplayMode: settings.comicDisplayMode,
+        comicTileScale: settings.comicTileScale,
+        showFavoriteStatusOnTile: settings.showFavoriteStatusOnTile,
+        showHistoryStatusOnTile: settings.showHistoryStatusOnTile,
+        reverseChapterOrder: settings.reverseChapterOrder,
+        blockedWords: settings.blockedWords,
+        blockedCommentWords: settings.blockedCommentWords,
+        comicListDisplayMode: settings.comicListDisplayMode
       }
     };
   }
@@ -152,6 +163,42 @@ export class WebDavSyncService {
       }
       if (payload.settings.explorePages && Array.isArray(payload.settings.explorePages)) {
         local.explorePages = payload.settings.explorePages;
+      }
+      if (payload.settings.defaultSearchTarget !== undefined) {
+        local.defaultSearchTarget = `${payload.settings.defaultSearchTarget}`;
+      }
+      if (payload.settings.autoAddLanguageFilter !== undefined) {
+        local.autoAddLanguageFilter = `${payload.settings.autoAddLanguageFilter}`;
+      }
+      if (payload.settings.categoryPages && Array.isArray(payload.settings.categoryPages)) {
+        local.categoryPages = payload.settings.categoryPages;
+      }
+      if (payload.settings.networkFavorites && Array.isArray(payload.settings.networkFavorites)) {
+        local.networkFavorites = payload.settings.networkFavorites;
+      }
+      if (payload.settings.comicDisplayMode !== undefined) {
+        local.comicDisplayMode = `${payload.settings.comicDisplayMode}`;
+      }
+      if (payload.settings.comicTileScale !== undefined) {
+        local.comicTileScale = payload.settings.comicTileScale as number;
+      }
+      if (payload.settings.showFavoriteStatusOnTile !== undefined) {
+        local.showFavoriteStatusOnTile = payload.settings.showFavoriteStatusOnTile as boolean;
+      }
+      if (payload.settings.showHistoryStatusOnTile !== undefined) {
+        local.showHistoryStatusOnTile = payload.settings.showHistoryStatusOnTile as boolean;
+      }
+      if (payload.settings.reverseChapterOrder !== undefined) {
+        local.reverseChapterOrder = payload.settings.reverseChapterOrder as boolean;
+      }
+      if (payload.settings.blockedWords && Array.isArray(payload.settings.blockedWords)) {
+        local.blockedWords = payload.settings.blockedWords;
+      }
+      if (payload.settings.blockedCommentWords && Array.isArray(payload.settings.blockedCommentWords)) {
+        local.blockedCommentWords = payload.settings.blockedCommentWords;
+      }
+      if (payload.settings.comicListDisplayMode !== undefined) {
+        local.comicListDisplayMode = `${payload.settings.comicListDisplayMode}`;
       }
       await AppDataService.getInstance().save();
     }

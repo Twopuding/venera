@@ -1,4 +1,4 @@
-import { router } from '@kit.ArkUI';
+import { router, promptAction } from '@kit.ArkUI';
 import { SysTheme } from '../../common/theme/SysTheme';
 import { LocalImageUtil } from '../../common/utils/LocalImageUtil';
 import { ImageCacheUtil } from '../../common/utils/ImageCacheUtil';
@@ -7,6 +7,13 @@ import { HistoryService } from '../../common/services/HistoryService';
 import { JsEngineBridge } from '../../common/services/JsEngineBridge';
 import { LocalComicService } from '../../common/services/LocalComicService';
 import { AppDataService } from '../../common/services/AppDataService';
+import {
+  IMAGE_FAVORITE_FIRST_PAGE,
+  ImageFavorite,
+  ImageFavoritesComic,
+  ImageFavoritesEp
+} from '../../common/models/ImageFavoriteModels';
+import { ImageFavoriteService } from '../../common/services/ImageFavoriteService';
 import { LocalComicChapter, ReadingHistoryEntry } from '../../common/models/ComicModels';
 
 /** 阅读器 — 对应 upstream lib/pages/reader/* */
@@ -23,21 +30,43 @@ struct ReaderPage {
   @State isVertical: boolean = true;
   @State localChapters: LocalComicChapter[] = [];
   @State showChapterPicker: boolean = false;
+  @State isImageFavorited: boolean = false;
   private swiperCtrl: SwiperController = new SwiperController();
   private comicId: string = '';
   private sourceKey: string = 'local';
   private directory: string = '';
   private chapterId: string = '';
   private coverPath: string = '';
+  private comicTitle: string = '';
+  private comicSubtitle: string = '';
+  private comicAuthor: string = '';
+  private chapterEp: number = 1;
+  private epName: string = '';
+  private tags: string[] = [];
 
   aboutToAppear(): void {
     const params = router.getParams() as Record<string, string>;
     this.title = params['title'] ?? '阅读';
+    this.comicTitle = params['comicTitle'] ?? this.title;
     this.comicId = params['comicId'] ?? '';
     this.sourceKey = params['sourceKey'] ?? 'local';
     this.directory = params['directory'] ?? '';
     this.chapterId = params['chapterId'] ?? '';
     this.coverPath = params['coverPath'] ?? '';
+    this.comicSubtitle = params['subtitle'] ?? '';
+    this.comicAuthor = params['author'] ?? '';
+    this.epName = params['epName'] ?? '';
+    const epRaw = Number(params['chapterIndex'] ?? '1');
+    this.chapterEp = !isNaN(epRaw) && epRaw > 0 ? epRaw : 1;
+    const tagsJson = params['tagsJson'] ?? '[]';
+    try {
+      this.tags = JSON.parse(tagsJson) as string[];
+    } catch (_e) {
+      this.tags = [];
+    }
+    if (this.epName.length === 0) {
+      this.epName = `E${this.chapterEp}`;
+    }
     this.isVertical = AppDataService.getInstance().settings.readerMode !== 'horizontal';
     if (this.sourceKey === 'local' && this.comicId.length > 0) {
       const comic = LocalComicService.getInstance().getComicById(this.comicId);
@@ -62,6 +91,106 @@ struct ReaderPage {
     await this.prepareDisplayPaths();
     this.prefetchAround(this.currentPage);
     this.saveProgress();
+    await this.refreshImageFavoriteState();
+  }
+
+  private async refreshImageFavoriteState(): Promise<void> {
+    if (this.sourceKey === 'local' || this.comicId.length === 0) {
+      this.isImageFavorited = false;
+      return;
+    }
+    const page = this.currentPage + 1;
+    this.isImageFavorited = await ImageFavoriteService.getInstance()
+      .hasAsync(this.comicId, this.sourceKey, this.chapterId, page, this.chapterEp);
+  }
+
+  private async toggleImageFavorite(): Promise<void> {
+    if (this.sourceKey === 'local' || this.pagePaths.length === 0) {
+      promptAction.showToast({ message: '暂不支持本地漫画图片收藏' });
+      return;
+    }
+    if (this.pagePaths[0].indexOf('file://') >= 0) {
+      promptAction.showToast({ message: '暂不支持本地漫画图片收藏' });
+      return;
+    }
+    const page = this.currentPage + 1;
+    const imageKey = this.pagePaths[this.currentPage] ?? '';
+    if (imageKey.length === 0) {
+      return;
+    }
+    try {
+      if (this.isImageFavorited) {
+        if (page === IMAGE_FAVORITE_FIRST_PAGE) {
+          promptAction.showToast({ message: '封面不能在此取消收藏' });
+          return;
+        }
+        await ImageFavoriteService.getInstance().deleteImageFavorite([
+          new ImageFavorite(
+            page, imageKey, undefined, this.chapterId, this.comicId,
+            this.chapterEp, this.sourceKey, this.epName
+          )
+        ]);
+        promptAction.showToast({ message: '已取消收藏' });
+      } else {
+        let comic = await ImageFavoriteService.getInstance().find(this.comicId, this.sourceKey);
+        if (!comic) {
+          comic = new ImageFavoritesComic(
+            this.comicId,
+            [],
+            this.comicTitle,
+            this.sourceKey,
+            this.tags,
+            [],
+            Date.now(),
+            this.comicAuthor,
+            {},
+            this.comicSubtitle,
+            this.pagePaths.length
+          );
+        }
+        const imageFavorite = new ImageFavorite(
+          page, imageKey, undefined, this.chapterId, this.comicId,
+          this.chapterEp, this.sourceKey, this.epName
+        );
+        let epItem: ImageFavoritesEp | null = null;
+        for (let i = 0; i < comic.imageFavoritesEp.length; i++) {
+          if (comic.imageFavoritesEp[i].ep === this.chapterEp) {
+            epItem = comic.imageFavoritesEp[i];
+            break;
+          }
+        }
+        if (epItem === null) {
+          if (page !== IMAGE_FAVORITE_FIRST_PAGE) {
+            const coverKey = this.pagePaths[0] ?? '';
+            const coverCopy = imageFavorite.copyWith(
+              IMAGE_FAVORITE_FIRST_PAGE, coverKey, true
+            );
+            epItem = new ImageFavoritesEp(
+              this.chapterId, this.chapterEp, [coverCopy, imageFavorite], this.epName, this.pagePaths.length
+            );
+          } else {
+            epItem = new ImageFavoritesEp(
+              this.chapterId, this.chapterEp, [imageFavorite], this.epName, this.pagePaths.length
+            );
+          }
+          comic.imageFavoritesEp.push(epItem);
+        } else {
+          if (epItem.eid.length > 0 && epItem.eid !== this.chapterId) {
+            promptAction.showToast({ message: '章节顺序可能已变化，暂不支持收藏' });
+            return;
+          }
+          if (epItem.eid.length === 0) {
+            epItem.eid = this.chapterId;
+          }
+          epItem.imageFavorites.push(imageFavorite);
+        }
+        await ImageFavoriteService.getInstance().addOrUpdateOrDelete(comic);
+        promptAction.showToast({ message: '收藏成功' });
+      }
+      await this.refreshImageFavoriteState();
+    } catch (e) {
+      promptAction.showToast({ message: `${e}` });
+    }
   }
 
   private async loadPages(): Promise<void> {
@@ -153,6 +282,9 @@ struct ReaderPage {
     entry.chapterId = this.chapterId;
     entry.coverPath = this.coverPath;
     entry.pageIndex = this.currentPage;
+    if (this.pagePaths.length > 0) {
+      entry.maxPage = this.pagePaths.length;
+    }
     await HistoryService.getInstance().record(entry);
   }
 
@@ -178,6 +310,7 @@ struct ReaderPage {
           this.currentPage = index;
           this.prefetchAround(index);
           this.saveProgress();
+          this.refreshImageFavoriteState();
         })
         .onClick(() => { this.showChrome = !this.showChrome; })
       } else if (this.loadingRemote) {
@@ -301,6 +434,18 @@ struct ReaderPage {
           }
 
           Row({ space: 8 }) {
+            if (this.sourceKey !== 'local') {
+              Button({ type: ButtonType.Circle }) {
+                SymbolGlyph(this.isImageFavorited ?
+                  $r('sys.symbol.heart_fill') : $r('sys.symbol.heart'))
+                  .fontSize(22)
+                  .fontColor(this.isImageFavorited ? ['#FFE84026'] : [SysTheme.FONT_PRIMARY])
+              }
+              .width(44)
+              .height(44)
+              .backgroundColor(Color.Transparent)
+              .onClick(() => { this.toggleImageFavorite(); })
+            }
             if (this.localChapters.length > 1) {
               Button('章节')
                 .onClick(() => { this.showChapterPicker = true; })

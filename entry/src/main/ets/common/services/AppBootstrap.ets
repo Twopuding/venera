@@ -4,10 +4,14 @@ import { LocalComicService } from './LocalComicService';
 import { ComicSourceService } from './ComicSourceService';
 import { JsEngineBridge } from './JsEngineBridge';
 import { FavoritesService } from './FavoritesService';
+import { LocalFavoritesService } from './LocalFavoritesService';
+import { ImageFavoriteService } from './ImageFavoriteService';
+import { FollowUpdatesService } from './FollowUpdatesService';
 import { DownloadService } from './DownloadService';
 import { HistoryService } from './HistoryService';
 import { MaterialEffectHelper } from '../material/MaterialEffectHelper';
 import { ImageCacheUtil } from '../utils/ImageCacheUtil';
+import { ImageFavoriteImageUtil } from '../utils/ImageFavoriteImageUtil';
 import { JsUiBridge } from './JsUiBridge';
 import { JsCookieStore } from './JsCookieStore';
 import { TagTranslationService } from './TagTranslationService';
@@ -41,6 +45,7 @@ export class AppBootstrap {
     setTimeout(async () => {
       try {
         ImageCacheUtil.init(context);
+        ImageFavoriteImageUtil.init(context);
         JsUiBridge.init(context);
         JsCookieStore.getInstance().init(context);
         await ComicSourceService.getInstance().init(context);
@@ -48,6 +53,8 @@ export class AppBootstrap {
         await HistoryService.getInstance().init(context);
         await LocalComicService.getInstance().init(context);
         await FavoritesService.getInstance().init(context);
+        await LocalFavoritesService.getInstance().init(context);
+        await ImageFavoriteService.getInstance().init(context);
         await DownloadService.getInstance().init(context);
         TagTranslationService.init(context);
         AppBootstrap.setMessage($r('app.string.startup_loading_init_js'));
@@ -65,6 +72,7 @@ export class AppBootstrap {
         await JsEngineBridge.getInstance().registerPendingStagedInBackground();
         await ComicSourceService.getInstance().syncFromNetwork();
         ComicSourceService.getInstance().markEngineFullyReady();
+        FollowUpdatesService.getInstance().initChecker();
         if (isFirstLaunch) {
           await AppDataService.getInstance().markFirstLaunchComplete();
         }

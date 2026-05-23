@@ -1,4 +1,5 @@
 import { util } from '@kit.ArkTS';
+import { preferences } from '@kit.ArkData';
 import { fileIo } from '@kit.CoreFileKit';
 import { common } from '@kit.AbilityKit';
 import { router } from '@kit.ArkUI';
@@ -7,10 +8,17 @@ import {
   CategoryItem,
   Comic,
   ComicSourceInfo,
+  ExplorePageMeta,
+  CategoryPageMeta,
   ExplorePageLoadResult,
   ExploreSection,
+  FavoriteFoldersResult,
   InstalledComicSource,
+  NetworkFavoriteMeta,
   RankingPageInfo,
+  SearchOptionDef,
+  SearchPageSourceItem,
+  SearchSuggestionContext,
   SourceAccountConfig,
   SourceSettingDef
 } from '../models/ComicModels';
@@ -23,6 +31,9 @@ import { AppDataService } from './AppDataService';
 import { FileIoUtil } from '../utils/FileIoUtil';
 import { SemVerUtil } from '../utils/SemVerUtil';
 import { SourceScriptUtil } from '../utils/SourceScriptUtil';
+import { WebCookieBridge } from './WebCookieBridge';
+import { ComicTypeUtil } from '../utils/ComicTypeUtil';
+import { SearchUtil } from '../utils/SearchUtil';
 
 /**
  * Comic source manager — port of upstream ComicSourceManager + venera-configs index.
@@ -39,6 +50,8 @@ export class ComicSourceService {
   private static readonly utf8Decoder = new util.TextDecoder('utf-8');
   /** key -> 远程 index 中的新版本号 */
   private availableUpdates: Map<string, string> = new Map();
+  /** type hash -> source key（本地收藏 type 列解析） */
+  private typeToSourceKey: Map<number, string> = new Map();
 
   static getInstance(): ComicSourceService {
     if (!ComicSourceService.instance) {
@@ -71,6 +84,32 @@ export class ComicSourceService {
   markEngineFullyReady(): void {
     this.engineFullyReady = true;
     AppStorage.setOrCreate(ENGINE_READY_KEY, true);
+    this.ensureDefaultSearchSources().catch((e: Error) => {
+      console.warn(`[ComicSourceService] ensureDefaultSearchSources: ${e}`);
+    });
+  }
+
+  /**
+   * 对齐上游 init.dart _checkOldConfigs：首次将 searchSources 设为全部可搜索已装源。
+   */
+  async ensureDefaultSearchSources(): Promise<void> {
+    const prefs = AppDataService.getInstance();
+    if (!this.appContext) {
+      return;
+    }
+    const store = await preferences.getPreferences(this.appContext, 'venera_appdata');
+    const initialized = await store.get('searchSourcesInitialized', false) as boolean;
+    if (initialized) {
+      return;
+    }
+    const keys = await this.getSearchableSourceKeysForSettings();
+    if (keys.length > 0) {
+      prefs.settings.searchSources = keys;
+      await prefs.save();
+      console.info(`[ComicSourceService] searchSources initialized (${keys.length} keys)`);
+    }
+    await store.put('searchSourcesInitialized', true);
+    await store.flush();
   }
 
   /** 后台装入 QuickJS 与图源 index（首次调用时执行，可 await） */
@@ -275,7 +314,8 @@ export class ComicSourceService {
 
   /** 确保单个图源已写入沙箱并注册到 QuickJS */
   private async ensureSourceScriptInstalled(src: ComicSourceInfo, allowNetwork: boolean = true): Promise<void> {
-    if (JsEngineBridge.getInstance().isSourceStaged(src.key)) {
+    const bridge = JsEngineBridge.getInstance();
+    if (bridge.isSourceStaged(src.key) && bridge.isSourceLoadedInNative(src.key)) {
       return;
     }
     if (this.isScriptOnDisk(src.key)) {
@@ -367,14 +407,34 @@ export class ComicSourceService {
     return configured.filter((t: string) => available.indexOf(t) >= 0);
   }
 
-  async loadExploreByTitle(title: string, page: number = 1): Promise<ExplorePageLoadResult | null> {
-    return JsEngineBridge.getInstance().invokeExploreByTitle(title, page);
+  async loadExploreByTitle(title: string, page: number = 1, nextCursor: string = ''): Promise<ExplorePageLoadResult | null> {
+    return JsEngineBridge.getInstance().invokeExploreByTitle(title, page, nextCursor);
+  }
+
+  async listExplorePageMeta(): Promise<ExplorePageMeta[]> {
+    await this.ensureEngineReady();
+    return JsEngineBridge.getInstance().invokeListExplorePageMeta();
+  }
+
+  async listCategoryPageMeta(): Promise<CategoryPageMeta[]> {
+    await this.ensureEngineReady();
+    return JsEngineBridge.getInstance().invokeListCategoryPageMeta();
+  }
+
+  async getExploreTabLabel(title: string): Promise<string> {
+    const meta = await this.listExplorePageMeta();
+    const found = meta.find((m: ExplorePageMeta) => m.title === title);
+    if (!found || found.sourceKey.length === 0) {
+      return title;
+    }
+    const translated = await this.translateSourceText(found.sourceKey, title);
+    return translated.length > 0 ? translated : title;
   }
 
   isSourceInAggregatedSearch(sourceKey: string): boolean {
     const configured = AppDataService.getInstance().settings.searchSources;
     if (configured.length === 0) {
-      return true;
+      return false;
     }
     return configured.indexOf(sourceKey) >= 0;
   }
@@ -401,9 +461,83 @@ export class ComicSourceService {
     AppDataService.getInstance().save();
   }
 
+  /** 搜索页可选源 — 对齐上游 findSearchSources */
+  async getSearchPageSources(): Promise<SearchPageSourceItem[]> {
+    const configured = AppDataService.getInstance().settings.searchSources;
+    const searchable = await JsEngineBridge.getInstance().invokeSearchableSourceKeys();
+    const out: SearchPageSourceItem[] = [];
+    for (let i = 0; i < configured.length; i++) {
+      const key = configured[i];
+      if (searchable.indexOf(key) < 0 || !this.isSourceCached(key)) {
+        continue;
+      }
+      const item = new SearchPageSourceItem();
+      item.key = key;
+      const info = this.getSourceByKey(key);
+      item.name = info && info.name.length > 0 ? info.name : key;
+      out.push(item);
+    }
+    return out;
+  }
+
+  async getSourceSearchOptions(sourceKey: string): Promise<SearchOptionDef[]> {
+    await this.ensureSourceReady(sourceKey);
+    return JsEngineBridge.getInstance().invokeSourceSearchOptions(sourceKey);
+  }
+
+  async isSourceTagSuggestionsEnabled(sourceKey: string): Promise<boolean> {
+    await this.ensureSourceReady(sourceKey);
+    return JsEngineBridge.getInstance().invokeSourceEnableTagSuggestions(sourceKey);
+  }
+
+  /** linkHandler / idMatcher 建议（对齐 upstream search findSuggestions） */
+  async getSearchSuggestionContext(text: string): Promise<SearchSuggestionContext> {
+    await this.ensureEngineReady();
+    return JsEngineBridge.getInstance().invokeSearchSuggestionContext(text);
+  }
+
+  /** 标签建议插入文本（对齐 upstream onTagSuggestionSelected） */
+  async formatTagSuggestionInsert(sourceKey: string, namespace: string, tag: string): Promise<string> {
+    await this.ensureSourceReady(sourceKey);
+    const custom = await JsEngineBridge.getInstance()
+      .invokeOnTagSuggestionSelected(sourceKey, namespace, tag);
+    if (custom !== null && custom.length > 0) {
+      return custom.endsWith(' ') ? custom : `${custom} `;
+    }
+    return SearchUtil.formatTagInsert(namespace, tag);
+  }
+
+  openComicDetail(sourceKey: string, comicId: string): void {
+    const comic = new Comic();
+    comic.sourceKey = sourceKey;
+    comic.id = comicId;
+    router.pushUrl({
+      url: 'pages/comic/ComicDetailPage',
+      params: { comicJson: JSON.stringify(comic) }
+    });
+  }
+
+  hasAnyInstalledSource(): boolean {
+    return this.sources.length > 0;
+  }
+
+  async searchWithOptions(sourceKey: string, keyword: string, options: string[], page: number): Promise<CategoryComicsResult> {
+    await this.ensureSourceReady(sourceKey);
+    return JsEngineBridge.getInstance().invokeSearchPaged(sourceKey, keyword, options, page);
+  }
+
+  /**
+   * 对齐上游 ComicSourceManager.reload：从沙箱重载全部 .js 到 QuickJS。
+   */
+  async reloadManager(): Promise<void> {
+    await this.loadStagedScriptsFromDisk();
+    await JsEngineBridge.getInstance().reloadAllSourcesToNative();
+    await this.syncExplorePagesFromSources();
+  }
+
   async search(keyword: string, sourceKey?: string): Promise<Comic[]> {
     if (sourceKey) {
-      return JsEngineBridge.getInstance().invokeSearch(sourceKey, keyword);
+      return JsEngineBridge.getInstance().invokeSearch(sourceKey, keyword, [], 1);
     }
     const results: Comic[] = [];
     for (const src of this.sources.filter((s: ComicSourceInfo) => s.enabled)) {
@@ -440,13 +574,13 @@ export class ComicSourceService {
   }
 
   async getAggregatedSearchSourceKeys(): Promise<string[]> {
-    const searchable = await JsEngineBridge.getInstance().invokeSearchableSourceKeys();
     const configured = AppDataService.getInstance().settings.searchSources;
-    let keys = searchable.filter((k: string) => this.isSourceCached(k));
-    if (configured.length > 0) {
-      keys = keys.filter((k: string) => configured.indexOf(k) >= 0);
+    if (configured.length === 0) {
+      return [];
     }
-    return keys;
+    const searchable = await JsEngineBridge.getInstance().invokeSearchableSourceKeys();
+    const cached = searchable.filter((k: string) => this.isSourceCached(k));
+    return cached.filter((k: string) => configured.indexOf(k) >= 0);
   }
 
   async searchOneSource(sourceKey: string, keyword: string): Promise<Comic[]> {
@@ -460,6 +594,81 @@ export class ComicSourceService {
 
   async loadRankingComics(sourceKey: string, option: string, page: number): Promise<CategoryComicsResult> {
     return JsEngineBridge.getInstance().invokeRankingComics(sourceKey, option, page);
+  }
+
+  /** 已启用且脚本支持 favorites 的源 key（settings.networkFavorites 子集） */
+  async listEnabledNetworkFavoriteKeys(): Promise<string[]> {
+    await this.ensureEngineReady();
+    const available = await JsEngineBridge.getInstance().invokeListFavoriteSourceKeys();
+    const enabled = AppDataService.getInstance().settings.networkFavorites;
+    const out: string[] = [];
+    for (let i = 0; i < enabled.length; i++) {
+      const key = enabled[i];
+      if (available.indexOf(key) >= 0) {
+        out.push(key);
+      }
+    }
+    return out;
+  }
+
+  async getNetworkFavoriteMeta(sourceKey: string): Promise<NetworkFavoriteMeta | null> {
+    await this.ensureEngineReady();
+    return JsEngineBridge.getInstance().invokeFavoriteMeta(sourceKey);
+  }
+
+  async loadNetworkFavoriteComics(
+    sourceKey: string,
+    page: number,
+    folderId: string | null
+  ): Promise<CategoryComicsResult> {
+    await this.ensureEngineReady();
+    if (!this.isSourceLogged(sourceKey)) {
+      const err = new CategoryComicsResult();
+      err.error = '未登录';
+      return err;
+    }
+    let result = await JsEngineBridge.getInstance()
+      .invokeFavoriteLoadComics(sourceKey, page, folderId);
+    if (result.error.indexOf('Login expired') >= 0) {
+      const relog = await this.reLoginSource(sourceKey);
+      if (relog.length === 0) {
+        result = await JsEngineBridge.getInstance()
+          .invokeFavoriteLoadComics(sourceKey, page, folderId);
+      } else {
+        result.error = relog;
+      }
+    }
+    return result;
+  }
+
+  async loadNetworkFavoriteNext(
+    sourceKey: string,
+    next: string,
+    folderId: string | null
+  ): Promise<CategoryComicsResult> {
+    await this.ensureEngineReady();
+    return JsEngineBridge.getInstance().invokeFavoriteLoadNext(sourceKey, next, folderId);
+  }
+
+  async loadNetworkFavoriteFolders(sourceKey: string, comicId: string | null): Promise<FavoriteFoldersResult> {
+    await this.ensureEngineReady();
+    return JsEngineBridge.getInstance().invokeFavoriteLoadFolders(sourceKey, comicId);
+  }
+
+  async removeNetworkFavoriteComic(
+    sourceKey: string,
+    comicId: string,
+    folderId: string,
+    favoriteId: string | null
+  ): Promise<string> {
+    await this.ensureEngineReady();
+    const fid = folderId.length > 0 ? folderId : (favoriteId ?? '');
+    return JsEngineBridge.getInstance().invokeFavoriteAddOrDel(sourceKey, comicId, fid, false);
+  }
+
+  getNetworkFavoriteTitle(sourceKey: string): string {
+    const src = this.getSourceByKey(sourceKey);
+    return src ? src.name : sourceKey;
   }
 
   getAvailableUpdates(): Map<string, string> {
@@ -480,7 +689,21 @@ export class ComicSourceService {
 
   /** 已装入 QuickJS 的漫画源列表（对齐上游 ComicSource.all） */
   async getInstalledSources(): Promise<InstalledComicSource[]> {
+    await this.ensureEngineReady();
     const bridge = JsEngineBridge.getInstance();
+    if (bridge.getStatus().runtimeReady) {
+      const pending: string[] = [];
+      const stagedKeys = bridge.getStagedSourceKeys();
+      for (let i = 0; i < stagedKeys.length; i++) {
+        const key = stagedKeys[i];
+        if (!bridge.isSourceLoadedInNative(key)) {
+          pending.push(key);
+        }
+      }
+      if (pending.length > 0) {
+        await bridge.registerSourcesToNative(pending);
+      }
+    }
     const list = await bridge.invokeAllInstalledMeta();
     for (let i = 0; i < list.length; i++) {
       const pending = this.availableUpdates.get(list[i].key);
@@ -488,7 +711,18 @@ export class ComicSourceService {
         list[i].pendingVersion = pending;
       }
     }
+    for (let i = 0; i < list.length; i++) {
+      this.typeToSourceKey.set(ComicTypeUtil.hashCodeString(list[i].key), list[i].key);
+    }
     return list;
+  }
+
+  /** 由收藏 type 解析 sourceKey（需已装入图源） */
+  getSourceKeyByType(type: number): string {
+    if (type === ComicTypeUtil.LOCAL_TYPE) {
+      return 'local';
+    }
+    return this.typeToSourceKey.get(type) ?? '';
   }
 
   isKeyInstalled(key: string): boolean {
@@ -539,6 +773,47 @@ export class ComicSourceService {
 
   async runSettingCallback(sourceKey: string, settingKey: string): Promise<string> {
     return JsEngineBridge.getInstance().invokeSettingCallback(sourceKey, settingKey);
+  }
+
+  /**
+   * Cookie 字段登录 — 对齐上游 validateCookies + data['account']='ok'
+   */
+  async loginWithCookies(sourceKey: string, cookieValues: string[]): Promise<string> {
+    if (!await this.ensureSourceReady(sourceKey)) {
+      return '漫画源引擎未就绪，请稍后重试';
+    }
+    const ok = await JsEngineBridge.getInstance().invokeValidateCookies(sourceKey, cookieValues);
+    if (!ok) {
+      return 'Cookie 无效';
+    }
+    ComicSourceDataService.getInstance().saveData(sourceKey, 'account', 'ok');
+    return '';
+  }
+
+  /**
+   * WebView 登录成功 — 对齐上游 checkLoginStatus + localStorage + onLoginSuccess
+   */
+  async completeWebviewLogin(sourceKey: string, pageUrl: string, localStorageJson: string): Promise<void> {
+    WebCookieBridge.syncFromWeb(pageUrl);
+    if (localStorageJson.length > 0) {
+      try {
+        const parsed = JSON.parse(localStorageJson) as Object;
+        if (parsed !== null && typeof parsed === 'object') {
+          ComicSourceDataService.getInstance().saveData(sourceKey, '_localStorage', parsed);
+        }
+      } catch (_e) {
+        // ignore invalid localStorage JSON
+      }
+    }
+    await JsEngineBridge.getInstance().invokeWebviewLoginSuccess(sourceKey);
+    ComicSourceDataService.getInstance().saveData(sourceKey, 'account', 'ok');
+  }
+
+  async checkWebviewLoginStatus(sourceKey: string, pageUrl: string, pageTitle: string): Promise<boolean> {
+    if (!await this.ensureSourceReady(sourceKey)) {
+      return false;
+    }
+    return JsEngineBridge.getInstance().invokeWebviewCheckStatus(sourceKey, pageUrl, pageTitle);
   }
 
   async loginWithPassword(sourceKey: string, username: string, password: string): Promise<string> {
@@ -658,8 +933,14 @@ export class ComicSourceService {
     if (!/^[a-zA-Z0-9_]+$/.test(meta.key)) {
       return `key(${meta.key}) 仅允许字母数字下划线`;
     }
-    if (JsEngineBridge.getInstance().isSourceStaged(meta.key)) {
+    const bridge = JsEngineBridge.getInstance();
+    if (bridge.isSourceLoadedInNative(meta.key)) {
       return `key(${meta.key}) 已存在`;
+    }
+    const minVer = meta.minAppVersion.length > 0 ? meta.minAppVersion :
+      (SourceScriptUtil.parseMetaFromScript(script)?.minAppVersion ?? '');
+    if (minVer.length > 0 && SemVerUtil.isGreater(minVer, AppConstants.HARMONY_VERSION)) {
+      return `需要应用版本 ${minVer} 或更高（当前 ${AppConstants.HARMONY_VERSION}）`;
     }
     meta.filePath = this.writeScriptFile(fileName, script, meta.key);
     const ok = await JsEngineBridge.getInstance().loadSourceScript(meta.key, script);
@@ -702,11 +983,22 @@ export class ComicSourceService {
   async removeSource(sourceKey: string): Promise<void> {
     JsEngineBridge.getInstance().removeStagedSource(sourceKey);
     ComicSourceDataService.getInstance().clearSourceData(sourceKey);
+    const scriptPath = this.sandboxScriptPath(sourceKey);
+    try {
+      fileIo.unlinkSync(scriptPath);
+    } catch (_e) {
+      // 对齐上游 delete(filePath)：文件可能已不存在
+    }
+    const idx = this.sources.findIndex((s: ComicSourceInfo) => s.key === sourceKey);
+    if (idx >= 0) {
+      this.sources.splice(idx, 1);
+    }
+    this.availableUpdates.delete(sourceKey);
     await JsEngineBridge.getInstance().reloadAllSourcesToNative();
     await this.validatePages();
   }
 
-  async updateSource(sourceKey: string): Promise<string> {
+  private async fetchAndWriteSourceScript(sourceKey: string): Promise<string> {
     const meta = await JsEngineBridge.getInstance().invokeSourceMeta(sourceKey);
     if (!meta || meta.url.length === 0 || !meta.url.includes('://')) {
       return '无效的更新 URL';
@@ -717,12 +1009,17 @@ export class ComicSourceService {
     } catch (e) {
       return `更新失败: ${e}`;
     }
-    JsEngineBridge.getInstance().removeStagedSource(sourceKey);
     this.writeScriptFile(`${sourceKey}.js`, script, sourceKey);
-    const ok = await JsEngineBridge.getInstance().loadSourceScript(sourceKey, script);
-    if (!ok) {
-      return '重新加载失败';
+    JsEngineBridge.getInstance().stageSourceScript(sourceKey, script);
+    return '';
+  }
+
+  async updateSource(sourceKey: string): Promise<string> {
+    const err = await this.fetchAndWriteSourceScript(sourceKey);
+    if (err.length > 0) {
+      return err;
     }
+    await this.reloadManager();
     this.availableUpdates.delete(sourceKey);
     await this.mergePagesForSource(sourceKey);
     return '';
@@ -766,10 +1063,15 @@ export class ComicSourceService {
   async updateAllAvailable(): Promise<string> {
     const keys = Array.from(this.availableUpdates.keys());
     for (let i = 0; i < keys.length; i++) {
-      const err = await this.updateSource(keys[i]);
+      const err = await this.fetchAndWriteSourceScript(keys[i]);
       if (err.length > 0) {
         return err;
       }
+    }
+    await this.reloadManager();
+    for (let i = 0; i < keys.length; i++) {
+      await this.mergePagesForSource(keys[i]);
+      this.availableUpdates.delete(keys[i]);
     }
     return '';
   }
@@ -820,11 +1122,8 @@ export class ComicSourceService {
       await AppDataService.getInstance().save();
     }
     if (raw['search'] === true && settings.searchSources.indexOf(sourceKey) < 0) {
-      const searchable = await this.getSearchableSourceKeysForSettings();
-      if (searchable.indexOf(sourceKey) < 0) {
-        settings.searchSources.push(sourceKey);
-        await AppDataService.getInstance().save();
-      }
+      settings.searchSources.push(sourceKey);
+      await AppDataService.getInstance().save();
     }
     await this.syncExplorePagesFromSources();
   }
@@ -869,7 +1168,10 @@ export class ComicSourceService {
 
   async reloadAfterEdit(sourceKey: string): Promise<void> {
     const script = this.readScriptContent(sourceKey);
-    await JsEngineBridge.getInstance().loadSourceScript(sourceKey, script);
+    if (script.length > 0) {
+      JsEngineBridge.getInstance().stageSourceScript(sourceKey, script);
+    }
+    await this.reloadManager();
     await this.mergePagesForSource(sourceKey);
   }
 }

@@ -435,7 +435,24 @@ struct SourceSettingsPanel {
         return i;
       }
     }
+    if (def.defaultValue !== undefined && def.defaultValue !== null) {
+      for (let i = 0; i < def.options.length; i++) {
+        if (def.options[i].value === `${def.defaultValue}`) {
+          return i;
+        }
+      }
+    }
     return 0;
+  }
+
+  /** 对齐上游 select：展示选项 text 而非原始 value */
+  private selectDisplayLabel(def: SourceSettingDef): string {
+    const idx = this.selectIndex(def);
+    if (idx >= 0 && idx < def.options.length) {
+      const opt = def.options[idx];
+      return opt.text.length > 0 ? opt.text : opt.value;
+    }
+    return `${def.defaultValue}`;
   }
 
   private getSettingDisplay(def: SourceSettingDef): string {
@@ -496,7 +513,7 @@ struct SourceSettingsPanel {
                 .layoutWeight(1)
               Select(this.buildSelectOptions(def))
                 .selected(this.selectIndex(def))
-                .value(this.buildSelectOptions(def)[this.selectIndex(def)].value)
+                .value(this.selectDisplayLabel(def))
                 .onSelect((index: number) => {
                   if (index >= 0 && index < def.options.length) {
                     ComicSourceDataService.getInstance()

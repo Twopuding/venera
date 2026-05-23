@@ -5,6 +5,12 @@ import { AppDataService } from './AppDataService';
  * EhTag 标签翻译（API 23 rawfile/assets/tags_tw.json）。
  * 在设置开启「标签翻译」时对标题/副标题中的 tag 片段做本地化。
  */
+/** 标签搜索建议项（对齐上游 Pair<String, TranslationType>） */
+export interface TagSuggestion {
+  tag: string;
+  namespace: string;
+}
+
 export class TagTranslationService {
   private static loaded: boolean = false;
   private static loading: boolean = false;
@@ -75,6 +81,73 @@ export class TagTranslationService {
       }
     }
     return out.join(' ');
+  }
+
+  static hasTagData(): boolean {
+    return TagTranslationService.loaded && Object.keys(TagTranslationService.tagMap).length > 0;
+  }
+
+  /** 对齐 upstream TagsTranslation.translationTagWithNamespace */
+  static translationTagWithNamespace(text: string, namespace: string): string {
+    if (!TagTranslationService.hasTagData()) {
+      return text;
+    }
+    let key = text.toLowerCase();
+    if (key !== 'reclass' && key.endsWith('s')) {
+      key = key.substring(0, key.length - 1);
+    }
+    const bucket = TagTranslationService.tagMap[namespace];
+    if (!bucket) {
+      return text;
+    }
+    return bucket[key] ?? text;
+  }
+
+  /**
+   * 按输入末尾 token 匹配 EhTag 标签（对齐 upstream findSuggestions）。
+   */
+  static findTagSuggestions(queryToken: string, maxCount: number = 100): TagSuggestion[] {
+    const out: TagSuggestion[] = [];
+    if (!TagTranslationService.hasTagData()) {
+      return out;
+    }
+    const text = queryToken.trim();
+    if (text.length === 0) {
+      return out;
+    }
+    const namespaces = Object.keys(TagTranslationService.tagMap);
+    for (let ni = 0; ni < namespaces.length; ni++) {
+      const ns = namespaces[ni];
+      const bucket = TagTranslationService.tagMap[ns];
+      const keys = Object.keys(bucket);
+      for (let ki = 0; ki < keys.length; ki++) {
+        if (out.length >= maxCount) {
+          return out;
+        }
+        const key = keys[ki];
+        const value = bucket[key];
+        if (TagTranslationService.matchSuggestionToken(text, key, value)) {
+          out.push({ tag: key, namespace: ns });
+        }
+      }
+    }
+    return out;
+  }
+
+  private static matchSuggestionToken(text: string, key: string, value: string): boolean {
+    if (key.length >= text.length && key.substring(0, text.length) === text) {
+      return true;
+    }
+    if (key.indexOf(' ') >= 0) {
+      const last = key.split(' ').pop() ?? '';
+      if (last.length >= text.length && last.substring(0, text.length) === text) {
+        return true;
+      }
+    }
+    if (value.length >= text.length && value.indexOf(text) >= 0) {
+      return true;
+    }
+    return false;
   }
 
   private static flattenTagRoot(root: Record<string, Object>): Record<string, Record<string, string>> {

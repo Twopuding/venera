@@ -4,6 +4,7 @@ export interface ParsedSourceMeta {
   name: string;
   version: string;
   url: string;
+  minAppVersion: string;
 }
 
 /**
@@ -33,13 +34,20 @@ export class SourceScriptUtil {
     const name = SourceScriptUtil.extractAssignString(slice, 'name');
     let version = SourceScriptUtil.extractAssignString(slice, 'version');
     const url = SourceScriptUtil.extractAssignString(slice, 'url');
+    const minAppVersion = SourceScriptUtil.extractAssignString(slice, 'minAppVersion');
     if (key.length === 0 || name.length === 0) {
       return null;
     }
     if (version.length === 0) {
       version = '1.0.0';
     }
-    const meta: ParsedSourceMeta = { key: key, name: name, version: version, url: url };
+    const meta: ParsedSourceMeta = {
+      key: key,
+      name: name,
+      version: version,
+      url: url,
+      minAppVersion: minAppVersion
+    };
     return meta;
   }
 

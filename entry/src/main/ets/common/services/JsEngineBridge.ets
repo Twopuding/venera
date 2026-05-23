@@ -9,10 +9,19 @@ import {
   ComicChapter,
   ComicComment,
   ComicInfoResult,
+  ComicTagGroup,
+  ExploreMixedBlock,
   ExplorePageLoadResult,
+  ExplorePageMeta,
+  CategoryPageMeta,
   ExploreSection,
+  FavoriteFoldersResult,
   InstalledComicSource,
+  NetworkFavoriteMeta,
   RankingPageInfo,
+  SearchOptionDef,
+  SearchPageSourceItem,
+  SearchSuggestionContext,
   SourceAccountConfig,
   SourceSettingDef,
   SourceSettingOption
@@ -223,10 +232,14 @@ export class JsEngineBridge {
 
 
 
-  buildSearchScript(sourceKey: string, keyword: string): string {
+  buildSearchScript(sourceKey: string, keyword: string, options: string[], page: number): string {
     const safeKey = JsEngineBridge.escapeJs(sourceKey);
     const safeWord = JsEngineBridge.escapeJs(keyword);
-    return `(async function(){var src=ComicSource.sources[${safeKey}];if(!src||!src.search||!src.search.load)return[];var res=await src.search.load(${safeWord},null,1);return(res&&res.comics)?res.comics:[];})()`;
+    const safeOpts = JSON.stringify(options);
+    return `(async function(){var src=ComicSource.sources[${safeKey}];` +
+      `if(!src||!src.search||!src.search.load)return {comics:[],maxPage:1};` +
+      `var res=await src.search.load(${safeWord},${safeOpts},${page});` +
+      `if(!res)return {comics:[],maxPage:1};return {comics:res.comics||[],maxPage:res.maxPage||1};})()`;
   }
 
   buildCategoriesScript(sourceKey: string): string {
@@ -246,11 +259,12 @@ export class JsEngineBridge {
       `if(!res)return {comics:[],maxPage:1};return {comics:res.comics||[],maxPage:res.maxPage||1};})()`;
   }
 
-  buildCategorySearchScript(sourceKey: string, keyword: string, page: number): string {
+  buildCategorySearchScript(sourceKey: string, keyword: string, page: number, options: string[]): string {
     const safeKey = JsEngineBridge.escapeJs(sourceKey);
     const safeWord = JsEngineBridge.escapeJs(keyword);
+    const safeOpts = JSON.stringify(options);
     return `(async function(){var src=ComicSource.sources[${safeKey}];if(!src||!src.search||!src.search.load)return {comics:[],maxPage:1};` +
-      `var res=await src.search.load(${safeWord},null,${page});if(!res)return {comics:[],maxPage:1};` +
+      `var res=await src.search.load(${safeWord},${safeOpts},${page});if(!res)return {comics:[],maxPage:1};` +
       `return {comics:res.comics||[],maxPage:res.maxPage||1};})()`;
   }
 
@@ -283,29 +297,66 @@ export class JsEngineBridge {
       `if(exp&&exp.title&&out.indexOf(exp.title)<0)out.push(exp.title);}}return out;})()`;
   }
 
-  buildExploreByTitleScript(title: string, page: number): string {
+  buildListExplorePageMetaScript(): string {
+    return `(function(){var out=[];var keys=Object.keys(ComicSource.sources);` +
+      `for(var i=0;i<keys.length;i++){var sk=keys[i];var src=ComicSource.sources[sk];` +
+      `if(!src||!src.explore||!src.explore.length)continue;` +
+      `for(var j=0;j<src.explore.length;j++){var exp=src.explore[j];` +
+      `if(exp&&exp.title)out.push({title:exp.title,sourceKey:sk});}}return out;})()`;
+  }
+
+  buildListCategoryPageMetaScript(): string {
+    return `(function(){var out=[];var keys=Object.keys(ComicSource.sources);` +
+      `for(var i=0;i<keys.length;i++){var sk=keys[i];var src=ComicSource.sources[sk];` +
+      `if(!src||!src.category||!src.category.key)continue;` +
+      `out.push({key:src.category.key,title:src.category.title||src.name,sourceKey:sk});}` +
+      `return out;})()`;
+  }
+
+  buildExploreByTitleScript(title: string, page: number, nextCursor: string): string {
     const safeTitle = JsEngineBridge.escapeJs(title);
-    return `(async function(){var want=${safeTitle};var pageNum=${page};` +
+    const safeNext = JsEngineBridge.escapeJs(nextCursor);
+    return `(async function(){var want=${safeTitle};var pageNum=${page};var nextIn=${safeNext};` +
+      `function serVm(v){if(v==null)return'';try{return JSON.stringify(v);}catch(e){return'';}}` +
       `var keys=Object.keys(ComicSource.sources);` +
       `for(var si=0;si<keys.length;si++){var sourceKey=keys[si];var src=ComicSource.sources[sourceKey];` +
       `if(!src||!src.explore)continue;` +
       `for(var ei=0;ei<src.explore.length;ei++){var exp=src.explore[ei];` +
-      `if(!exp||exp.title!==want||typeof exp.load!=='function')continue;` +
+      `if(!exp||exp.title!==want)continue;` +
       `var typ=exp.type||'multiPartPage';` +
-      `var loadArg=typ==='multiPageComicList'?pageNum:(typ==='mixed'?pageNum-1:null);` +
-      `try{var data=await exp.load(loadArg);var sections=[];var comics=[];var maxPage=1;` +
-      `if(!data)return {sourceKey:sourceKey,title:want,sections:[],comics:[],maxPage:1,page:pageNum};` +
-      `if(typ==='multiPageComicList'&&data&&data.comics){comics=data.comics;maxPage=data.maxPage||1;}` +
-      `else if(Array.isArray(data)){` +
-      `if(data.length>0&&data[0]&&data[0].comics){` +
-      `for(var pi=0;pi<data.length;pi++){var p=data[pi];if(p&&p.comics&&p.comics.length)` +
-      `sections.push({title:p.title||'',comics:p.comics});}}` +
-      `else{sections.push({title:exp.title||want,comics:data});}}` +
-      `else if(typeof data==='object'){var dkeys=Object.keys(data);` +
-      `for(var ki=0;ki<dkeys.length;ki++){var arr=data[dkeys[ki]];` +
-      `if(Array.isArray(arr)&&arr.length>0)sections.push({title:dkeys[ki],comics:arr});}}` +
-      `return {sourceKey:sourceKey,title:want,sections:sections,comics:comics,maxPage:maxPage,page:pageNum};` +
-      `}catch(e){return {sourceKey:sourceKey,title:want,sections:[],comics:[],maxPage:1,page:pageNum};}}}` +
+      `try{` +
+      `if(typ==='multiPageComicList'){` +
+      `if(typeof exp.load==='function'){var data=await exp.load(pageNum);` +
+      `return{sourceKey:sourceKey,title:want,sections:[],comics:(data&&data.comics)||[],` +
+      `mixedBlocks:[],maxPage:(data&&data.maxPage)||1,page:pageNum,nextCursor:''};}` +
+      `if(typeof exp.loadNext==='function'){var nc=nextIn.length>0?nextIn:null;` +
+      `var data2=await exp.loadNext(nc);` +
+      `return{sourceKey:sourceKey,title:want,sections:[],comics:(data2&&data2.comics)||[],` +
+      `mixedBlocks:[],maxPage:1,page:pageNum,nextCursor:(data2&&data2.next)||''};}}` +
+      `if(typ==='mixed'&&typeof exp.load==='function'){var mix=await exp.load(pageNum-1);` +
+      `var blocks=[];var arr=(mix&&mix.data)||[];` +
+      `for(var bi=0;bi<arr.length;bi++){var el=arr[bi];` +
+      `if(Array.isArray(el))blocks.push({kind:'grid',title:'',comics:el,viewMoreJson:''});` +
+      `else if(el&&el.comics)blocks.push({kind:'section',title:el.title||'',comics:el.comics,` +
+      `viewMoreJson:serVm(el.viewMore)});}` +
+      `return{sourceKey:sourceKey,title:want,sections:[],comics:[],mixedBlocks:blocks,` +
+      `maxPage:(mix&&mix.maxPage)||1,page:pageNum,nextCursor:''};}` +
+      `if(typeof exp.load!=='function')continue;` +
+      `var data3=await exp.load();var sections=[];` +
+      `if(!data3)return{sourceKey:sourceKey,title:want,sections:[],comics:[],mixedBlocks:[],` +
+      `maxPage:1,page:pageNum,nextCursor:''};` +
+      `if(Array.isArray(data3)&&data3.length>0&&data3[0]&&data3[0].comics){` +
+      `for(var pi=0;pi<data3.length;pi++){var p=data3[pi];if(p&&p.comics&&p.comics.length)` +
+      `sections.push({title:p.title||'',comics:p.comics,viewMoreJson:serVm(p.viewMore)});}}` +
+      `else if(Array.isArray(data3)&&data3.length>0)` +
+      `{sections.push({title:exp.title||want,comics:data3,viewMoreJson:''});}` +
+      `else if(typeof data3==='object'){var dkeys=Object.keys(data3);` +
+      `for(var ki=0;ki<dkeys.length;ki++){var a=data3[dkeys[ki]];` +
+      `if(Array.isArray(a)&&a.length>0)sections.push({title:dkeys[ki],comics:a,viewMoreJson:''});}}` +
+      `return{sourceKey:sourceKey,title:want,sections:sections,comics:[],mixedBlocks:[],` +
+      `maxPage:1,page:pageNum,nextCursor:''};` +
+      `}catch(e){return{sourceKey:sourceKey,title:want,sections:[],comics:[],mixedBlocks:[],` +
+      `maxPage:1,page:pageNum,nextCursor:'',error:String(e)};}}}` +
       `return null;})()`;
   }
 
@@ -522,6 +573,9 @@ export class JsEngineBridge {
     }
     const obj = raw as Record<string, Object>;
     result.maxPage = typeof obj['maxPage'] === 'number' ? obj['maxPage'] as number : 1;
+    if (typeof obj['next'] === 'string') {
+      result.next = obj['next'] as string;
+    }
     result.comics = this.parseComics(obj['comics'] ?? null);
     for (let i = 0; i < result.comics.length; i++) {
       if (result.comics[i].sourceKey.length === 0) {
@@ -593,11 +647,54 @@ export class JsEngineBridge {
     return this.parseStringList(raw);
   }
 
-  async invokeExploreByTitle(title: string, page: number = 1): Promise<ExplorePageLoadResult | null> {
+  async invokeListExplorePageMeta(): Promise<ExplorePageMeta[]> {
+    if (!this.runtimeReady) {
+      return [];
+    }
+    const raw = await this.evaluateJson(this.buildListExplorePageMetaScript(), 'invokeListExplorePageMeta');
+    if (!raw || !Array.isArray(raw)) {
+      return [];
+    }
+    const arr = raw as Array<Record<string, Object>>;
+    const out: ExplorePageMeta[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const m = new ExplorePageMeta();
+      m.title = `${arr[i]['title'] ?? ''}`;
+      m.sourceKey = `${arr[i]['sourceKey'] ?? ''}`;
+      if (m.title.length > 0) {
+        out.push(m);
+      }
+    }
+    return out;
+  }
+
+  async invokeListCategoryPageMeta(): Promise<CategoryPageMeta[]> {
+    if (!this.runtimeReady) {
+      return [];
+    }
+    const raw = await this.evaluateJson(this.buildListCategoryPageMetaScript(), 'invokeListCategoryPageMeta');
+    if (!raw || !Array.isArray(raw)) {
+      return [];
+    }
+    const arr = raw as Array<Record<string, Object>>;
+    const out: CategoryPageMeta[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const m = new CategoryPageMeta();
+      m.key = `${arr[i]['key'] ?? ''}`;
+      m.title = `${arr[i]['title'] ?? ''}`;
+      m.sourceKey = `${arr[i]['sourceKey'] ?? ''}`;
+      if (m.key.length > 0) {
+        out.push(m);
+      }
+    }
+    return out;
+  }
+
+  async invokeExploreByTitle(title: string, page: number = 1, nextCursor: string = ''): Promise<ExplorePageLoadResult | null> {
     if (!this.runtimeReady || title.length === 0) {
       return null;
     }
-    const script = this.buildExploreByTitleScript(title, page);
+    const script = this.buildExploreByTitleScript(title, page, nextCursor);
     const raw = await this.evaluateJson(script, 'invokeExploreByTitle');
     return this.parseExplorePageLoadResult(raw);
   }
@@ -612,8 +709,11 @@ export class JsEngineBridge {
     result.exploreTitle = `${item['title'] ?? ''}`;
     result.maxPage = Number(item['maxPage'] ?? 1);
     result.page = Number(item['page'] ?? 1);
+    result.nextCursor = `${item['nextCursor'] ?? ''}`;
+    result.error = `${item['error'] ?? ''}`;
     result.sections = this.parseExploreSections(item['sections'] as Object | null, result.sourceKey);
     result.comics = this.parseComics(item['comics'] ?? null);
+    result.mixedBlocks = this.parseExploreMixedBlocks(item['mixedBlocks'] as Object | null, result.sourceKey);
     for (let i = 0; i < result.comics.length; i++) {
       if (result.comics[i].sourceKey.length === 0) {
         result.comics[i].sourceKey = result.sourceKey;
@@ -632,6 +732,7 @@ export class JsEngineBridge {
       const item = arr[i];
       const section = new ExploreSection();
       section.title = `${item['title'] ?? ''}`;
+      section.viewMoreJson = `${item['viewMoreJson'] ?? ''}`;
       section.comics = this.parseComics(item['comics'] ?? null);
       for (let j = 0; j < section.comics.length; j++) {
         if (section.comics[j].sourceKey.length === 0) {
@@ -640,6 +741,31 @@ export class JsEngineBridge {
       }
       if (section.comics.length > 0) {
         out.push(section);
+      }
+    }
+    return out;
+  }
+
+  private parseExploreMixedBlocks(raw: Object | null, sourceKey: string): ExploreMixedBlock[] {
+    if (!raw || !Array.isArray(raw)) {
+      return [];
+    }
+    const arr = raw as Array<Record<string, Object>>;
+    const out: ExploreMixedBlock[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const item = arr[i];
+      const block = new ExploreMixedBlock();
+      block.kind = `${item['kind'] ?? 'section'}`;
+      block.title = `${item['title'] ?? ''}`;
+      block.viewMoreJson = `${item['viewMoreJson'] ?? ''}`;
+      block.comics = this.parseComics(item['comics'] ?? null);
+      for (let j = 0; j < block.comics.length; j++) {
+        if (block.comics[j].sourceKey.length === 0) {
+          block.comics[j].sourceKey = sourceKey;
+        }
+      }
+      if (block.comics.length > 0) {
+        out.push(block);
       }
     }
     return out;
@@ -685,35 +811,131 @@ export class JsEngineBridge {
     return this.parseCategoryComicsResult(raw, sourceKey);
   }
 
-  async invokeSearch(sourceKey: string, keyword: string): Promise<Comic[]> {
-
-    if (!this.runtimeReady || !this.stagedSources.has(sourceKey)) {
-
-      return [];
-
-    }
-
-    const script = this.buildSearchScript(sourceKey, keyword);
-
-    const raw = await this.evaluateJson(script, 'invokeSearch');
-
-    const comics = this.parseComics(raw);
-
-    for (let i = 0; i < comics.length; i++) {
-
-      if (comics[i].sourceKey.length === 0) {
-
-        comics[i].sourceKey = sourceKey;
-
-      }
-
-    }
-
-    return comics;
-
+  async invokeSearch(sourceKey: string, keyword: string, options: string[] = [], page: number = 1): Promise<Comic[]> {
+    const result = await this.invokeSearchPaged(sourceKey, keyword, options, page);
+    return result.comics;
   }
 
+  async invokeSearchPaged(sourceKey: string, keyword: string, options: string[], page: number): Promise<CategoryComicsResult> {
+    if (!this.runtimeReady || !this.stagedSources.has(sourceKey)) {
+      return new CategoryComicsResult();
+    }
+    const script = this.buildSearchScript(sourceKey, keyword, options, page);
+    const raw = await this.evaluateJson(script, 'invokeSearchPaged');
+    const result = this.parseCategoryComicsResult(raw, sourceKey);
+    return result;
+  }
 
+  async invokeSourceSearchOptions(sourceKey: string): Promise<SearchOptionDef[]> {
+    if (!this.runtimeReady || !this.stagedSources.has(sourceKey)) {
+      return [];
+    }
+    const safeKey = JsEngineBridge.escapeJs(sourceKey);
+    const script = `(function(){var s=ComicSource.sources[${safeKey}];` +
+      `if(!s||!s.search||!s.search.optionList||!Array.isArray(s.search.optionList))return [];` +
+      `var out=[];for(var i=0;i<s.search.optionList.length;i++){var el=s.search.optionList[i];` +
+      `var opts=[];if(el.options){for(var j=0;j<el.options.length;j++){var o=el.options[j];` +
+      `var val='';var txt='';if(typeof o==='string'){var dash=o.indexOf('-');` +
+      `if(dash>0){val=o.substring(0,dash);txt=o.substring(dash+1);}else{val=o;txt=o;}}` +
+      `else{val=o.value||'';txt=o.text||val;}opts.push({value:val,text:txt});}` +
+      `var def=el.defaultValue!=null?String(el.defaultValue):(opts.length>0?opts[0].value:'');` +
+      `out.push({label:el.label||'',type:el.type||'select',options:opts,defaultValue:def});}}return out;})()`;
+    const raw = await this.evaluateJson(script, 'invokeSourceSearchOptions');
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+    const arr = raw as Array<Record<string, Object>>;
+    const defs: SearchOptionDef[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const item = arr[i];
+      const def = new SearchOptionDef();
+      def.label = `${item['label'] ?? ''}`;
+      def.type = `${item['type'] ?? 'select'}`;
+      def.defaultValue = `${item['defaultValue'] ?? ''}`;
+      if (Array.isArray(item['options'])) {
+        const opts = item['options'] as Array<Record<string, Object>>;
+        for (let j = 0; j < opts.length; j++) {
+          const o = new SourceSettingOption();
+          o.value = `${opts[j]['value'] ?? ''}`;
+          o.text = `${opts[j]['text'] ?? o.value}`;
+          def.options.push(o);
+        }
+      }
+      if (def.options.length > 0) {
+        defs.push(def);
+      }
+    }
+    return defs;
+  }
+
+  /** 图源 search.enableTagsSuggestions（默认 true） */
+  async invokeSourceEnableTagSuggestions(sourceKey: string): Promise<boolean> {
+    if (!this.runtimeReady || !this.stagedSources.has(sourceKey)) {
+      return false;
+    }
+    const safeKey = JsEngineBridge.escapeJs(sourceKey);
+    const script = `(function(){var s=ComicSource.sources[${safeKey}];` +
+      `if(!s||!s.search)return false;` +
+      `return s.search.enableTagsSuggestions!==false;})()`;
+    const raw = await this.evaluateJson(script, 'invokeSourceEnableTagSuggestions');
+    return raw === true;
+  }
+
+  /**
+   * 搜索建议：comic.link / comic.idMatch — 对齐 upstream search_page findSuggestions
+   */
+  async invokeSearchSuggestionContext(text: string): Promise<SearchSuggestionContext> {
+    const ctx = new SearchSuggestionContext();
+    if (!this.runtimeReady || text.trim().length === 0) {
+      return ctx;
+    }
+    const safeText = JsEngineBridge.escapeJs(text.trim());
+    const script = `(function(t){var r={link:null,idKeys:[]};` +
+      `var isUrl=/^https?:\\/\\//i.test(t);` +
+      `for(var k in ComicSource.sources){var s=ComicSource.sources[k];if(!s||!s.comic)continue;` +
+      `if(isUrl&&s.comic.link&&Array.isArray(s.comic.link.domains)&&typeof s.comic.link.linkToId==='function'){` +
+      `try{var u=new URL(t);if(s.comic.link.domains.indexOf(u.host)>=0){` +
+      `var id=s.comic.link.linkToId(t);if(id){r.link={sourceKey:k,id:String(id)};return r;}}catch(e){}}` +
+      `if(s.comic.idMatch){try{if(new RegExp(s.comic.idMatch).test(t))r.idKeys.push(k);}catch(e){}}}` +
+      `return r;})(${JSON.stringify(text.trim())})`;
+    const raw = await this.evaluateJson(script, 'invokeSearchSuggestionContext');
+    if (!raw || typeof raw !== 'object') {
+      return ctx;
+    }
+    const obj = raw as Record<string, Object>;
+    const link = obj['link'] as Record<string, Object> | null;
+    if (link) {
+      ctx.linkSourceKey = `${link['sourceKey'] ?? ''}`;
+      ctx.linkComicId = `${link['id'] ?? ''}`;
+    }
+    if (Array.isArray(obj['idKeys'])) {
+      const keys = obj['idKeys'] as string[];
+      for (let i = 0; i < keys.length; i++) {
+        const item = new SearchPageSourceItem();
+        item.key = keys[i];
+        const meta = await this.invokeSourceMeta(keys[i]);
+        item.name = meta?.name ?? keys[i];
+        ctx.idMatchSources.push(item);
+      }
+    }
+    return ctx;
+  }
+
+  /** search.onTagSuggestionSelected — 无则返回 null */
+  async invokeOnTagSuggestionSelected(sourceKey: string, namespace: string, tag: string): Promise<string | null> {
+    if (!this.runtimeReady || !this.stagedSources.has(sourceKey)) {
+      return null;
+    }
+    const safeKey = JsEngineBridge.escapeJs(sourceKey);
+    const safeNs = JsEngineBridge.escapeJs(namespace);
+    const safeTag = JsEngineBridge.escapeJs(tag);
+    const script = `(function(){var s=ComicSource.sources[${safeKey}];` +
+      `if(!s||!s.search||typeof s.search.onTagSuggestionSelected!=='function')return null;` +
+      `var r=s.search.onTagSuggestionSelected(${safeNs},${safeTag});` +
+      `return(typeof r==='string')?r:null;})()`;
+    const raw = await this.evaluateJson(script, 'invokeOnTagSuggestionSelected');
+    return typeof raw === 'string' ? raw : null;
+  }
 
   async invokeCategories(sourceKey: string): Promise<CategoryItem[]> {
 
@@ -734,7 +956,7 @@ export class JsEngineBridge {
       return new CategoryComicsResult();
     }
     const script = item.itemType === 'search' ?
-      this.buildCategorySearchScript(sourceKey, item.label, page) :
+      this.buildCategorySearchScript(sourceKey, item.label, page, []) :
       this.buildCategoryComicsScript(sourceKey, item.label, item.param, page);
     const raw = await this.evaluateJson(script, 'invokeCategoryComics');
     return this.parseCategoryComicsResult(raw, sourceKey);
@@ -807,6 +1029,38 @@ export class JsEngineBridge {
     return result;
   }
 
+  async invokeComicSupportsLike(sourceKey: string): Promise<boolean> {
+    if (!this.runtimeReady || !this.stagedSources.has(sourceKey)) {
+      return false;
+    }
+    const safeKey = JsEngineBridge.escapeJs(sourceKey);
+    const script = `(function(){var s=ComicSource.sources[${safeKey}];` +
+      `return !!(s&&s.comic&&typeof s.comic.likeComic==='function');})()`;
+    const raw = await this.evaluateJson(script, 'invokeComicSupportsLike');
+    return raw === true;
+  }
+
+  async invokeComicLike(sourceKey: string, comicId: string, isLiking: boolean): Promise<string> {
+    if (!this.runtimeReady || !this.stagedSources.has(sourceKey)) {
+      return '引擎未就绪';
+    }
+    const safeKey = JsEngineBridge.escapeJs(sourceKey);
+    const safeId = JsEngineBridge.escapeJs(comicId);
+    const script = `(async function(){var s=ComicSource.sources[${safeKey}];` +
+      `if(!s||!s.comic||typeof s.comic.likeComic!=='function')return {error:'不支持点赞'};` +
+      `try{await s.comic.likeComic(${safeId},${isLiking});return {ok:true};}` +
+      `catch(e){return {error:String(e)};}})()`;
+    const raw = await this.evaluateJson(script, 'invokeComicLike');
+    if (!raw || typeof raw !== 'object') {
+      return '点赞失败';
+    }
+    const obj = raw as Record<string, Object>;
+    if (obj['ok'] === true) {
+      return '';
+    }
+    return `${obj['error'] ?? '点赞失败'}`;
+  }
+
   private parseComicFromInfo(obj: Record<string, Object>, sourceKey: string, comicId: string): Comic {
     const c = new Comic();
     c.id = comicId;
@@ -826,12 +1080,59 @@ export class JsEngineBridge {
       for (let i = 0; i < tagsArr.length; i++) {
         c.tags.push(`${tagsArr[i]}`);
       }
+    } else if (obj['tags'] !== null && typeof obj['tags'] === 'object' && !Array.isArray(obj['tags'])) {
+      const tagObj = obj['tags'] as Record<string, Object>;
+      c.tagGroups = [];
+      c.tags = [];
+      const nsKeys = Object.keys(tagObj);
+      for (let ni = 0; ni < nsKeys.length; ni++) {
+        const ns = nsKeys[ni];
+        const val = tagObj[ns];
+        if (!Array.isArray(val)) {
+          continue;
+        }
+        const group = new ComicTagGroup();
+        group.namespace = ns;
+        const arr = val as Array<Object>;
+        for (let ti = 0; ti < arr.length; ti++) {
+          const tag = `${arr[ti]}`;
+          group.tags.push(tag);
+          c.tags.push(`${ns}:${tag}`);
+        }
+        if (group.tags.length > 0) {
+          c.tagGroups.push(group);
+        }
+      }
+    }
+    if (obj['url'] !== undefined) {
+      c.url = `${obj['url']}`;
+    }
+    if (typeof obj['isLiked'] === 'boolean') {
+      c.isLiked = obj['isLiked'] as boolean;
+    }
+    if (typeof obj['likesCount'] === 'number') {
+      c.likesCount = obj['likesCount'] as number;
+    }
+    if (typeof obj['commentCount'] === 'number') {
+      c.commentCount = obj['commentCount'] as number;
+    }
+    if (obj['uploader'] !== undefined) {
+      c.uploader = `${obj['uploader']}`;
+    }
+    if (obj['uploadTime'] !== undefined) {
+      c.uploadTime = `${obj['uploadTime']}`;
+    }
+    if (typeof obj['isFavorite'] === 'boolean') {
+      c.isFavorite = obj['isFavorite'] as boolean;
     }
     if (typeof obj['maxPage'] === 'number') {
       c.maxPage = obj['maxPage'] as number;
     }
     if (typeof obj['stars'] === 'number') {
       c.stars = obj['stars'] as number;
+    }
+    if (obj['updateTime'] !== undefined) {
+      c.updateTime = `${obj['updateTime']}`;
     }
     return c;
   }
@@ -877,6 +1178,8 @@ export class JsEngineBridge {
 
         this.loadedNativeKeys.add(sourceKey);
 
+        await this.invokeSourceInit(sourceKey);
+
       }
 
       return ok;
@@ -919,6 +1222,8 @@ export class JsEngineBridge {
       if (ok) {
 
         this.loadedNativeKeys.add(key);
+
+        await this.invokeSourceInit(key);
 
       }
 
@@ -1135,7 +1440,8 @@ export class JsEngineBridge {
       return '';
     }
     const body = script.replace(/\r\n/g, '\n');
-    return `(function(){${body}var t=new ${className}();return {key:t.key||'',name:t.name||'',version:t.version||'',url:t.url||''};})()`;
+    return `(function(){${body}var t=new ${className}();return {key:t.key||'',name:t.name||'',` +
+      `version:t.version||'',url:t.url||'',minAppVersion:t.minAppVersion||''};})()`;
   }
 
   async parseScriptMeta(script: string): Promise<InstalledComicSource | null> {
@@ -1149,10 +1455,14 @@ export class JsEngineBridge {
         meta.name = `${obj['name'] ?? ''}`;
         meta.version = `${obj['version'] ?? ''}`;
         meta.url = `${obj['url'] ?? ''}`;
+        const minApp = `${obj['minAppVersion'] ?? ''}`;
         if (meta.version.length === 0) {
           meta.version = '1.0.0';
         }
         if (meta.key.length > 0 && meta.name.length > 0) {
+          if (minApp.length > 0) {
+            meta.minAppVersion = minApp;
+          }
           return meta;
         }
       }
@@ -1166,6 +1476,7 @@ export class JsEngineBridge {
     fallback.name = parsed.name;
     fallback.version = parsed.version;
     fallback.url = parsed.url;
+    fallback.minAppVersion = parsed.minAppVersion;
     return fallback;
   }
 
@@ -1375,6 +1686,54 @@ export class JsEngineBridge {
     return text;
   }
 
+  /** 装入后调用图源 init() — 对齐上游 ComicSourceParser.parse 延迟 init */
+  async invokeSourceInit(sourceKey: string): Promise<void> {
+    if (!this.runtimeReady || sourceKey.length === 0) {
+      return;
+    }
+    const safeKey = JsEngineBridge.escapeJs(sourceKey);
+    const script = `(function(){try{var s=ComicSource.sources[${safeKey}];` +
+      `if(s&&typeof s.init==='function')s.init();}catch(e){}})()`;
+    await this.evaluateRaw(script);
+  }
+
+  /** WebView 登录状态检测 — 对齐 account.loginWithWebview.checkStatus */
+  async invokeWebviewCheckStatus(sourceKey: string, pageUrl: string, pageTitle: string): Promise<boolean> {
+    const safeKey = JsEngineBridge.escapeJs(sourceKey);
+    const safeUrl = JsEngineBridge.escapeJs(pageUrl);
+    const safeTitle = JsEngineBridge.escapeJs(pageTitle);
+    const script = `(function(){try{var s=ComicSource.sources[${safeKey}];` +
+      `if(!s||!s.account||!s.account.loginWithWebview||` +
+      `typeof s.account.loginWithWebview.checkStatus!=='function')return false;` +
+      `return !!s.account.loginWithWebview.checkStatus(${safeUrl},${safeTitle});` +
+      `}catch(e){return false;}})()`;
+    const raw = await this.evaluateJson(script, 'invokeWebviewCheckStatus');
+    return raw === true;
+  }
+
+  /** WebView 登录成功回调 — 对齐 account.loginWithWebview.onLoginSuccess */
+  async invokeWebviewLoginSuccess(sourceKey: string): Promise<void> {
+    const safeKey = JsEngineBridge.escapeJs(sourceKey);
+    const script = `(function(){try{var s=ComicSource.sources[${safeKey}];` +
+      `if(s&&s.account&&s.account.loginWithWebview&&` +
+      `typeof s.account.loginWithWebview.onLoginSuccess==='function')` +
+      `s.account.loginWithWebview.onLoginSuccess();}catch(e){}})()`;
+    await this.evaluateRaw(script);
+  }
+
+  /** Cookie 登录校验 — 对齐 account.loginWithCookies.validate */
+  async invokeValidateCookies(sourceKey: string, cookieValues: string[]): Promise<boolean> {
+    const safeKey = JsEngineBridge.escapeJs(sourceKey);
+    const safeCookies = JSON.stringify(cookieValues);
+    const script = `(async function(){try{var s=ComicSource.sources[${safeKey}];` +
+      `if(!s||!s.account||!s.account.loginWithCookies||` +
+      `typeof s.account.loginWithCookies.validate!=='function')return false;` +
+      `return !!(await s.account.loginWithCookies.validate(${safeCookies}));` +
+      `}catch(e){return false;}})()`;
+    const raw = await this.evaluateJson(script, 'invokeValidateCookies');
+    return raw === true;
+  }
+
   /** 图源 account.reLogin — 对齐上游重新登录 */
   async invokeAccountReLogin(sourceKey: string): Promise<string> {
     const safeKey = JsEngineBridge.escapeJs(sourceKey);
@@ -1390,6 +1749,212 @@ export class JsEngineBridge {
       return '';
     }
     return `${obj['error'] ?? '重新登录失败'}`;
+  }
+
+  buildFavoriteMetaScript(sourceKey: string): string {
+    const safeKey = JsEngineBridge.escapeJs(sourceKey);
+    return `(function(){var s=ComicSource.sources[${safeKey}];if(!s||!s.favorites)return null;` +
+      `var fav=s.favorite||{};return {favoriteKey:(fav.key||${safeKey}),title:(fav.title||s.name||${safeKey}),` +
+      `multiFolder:!!s.favorites.multiFolder,hasLoadComics:typeof s.favorites.loadComics==='function',` +
+      `hasLoadNext:typeof s.favorites.loadNext==='function',hasAddOrDel:typeof s.favorites.addOrDelFavorite==='function'};})()`;
+  }
+
+  buildFavoriteLoadComicsScript(sourceKey: string, page: number, folderId: string | null): string {
+    const safeKey = JsEngineBridge.escapeJs(sourceKey);
+    const folderJs = folderId !== null && folderId.length > 0 ?
+      JsEngineBridge.escapeJs(folderId) : 'null';
+    return `(async function(){var s=ComicSource.sources[${safeKey}];` +
+      `if(!s||!s.favorites||!s.favorites.loadComics)return {error:'不支持',comics:[],maxPage:1};` +
+      `try{var res=await s.favorites.loadComics(${page},${folderJs});` +
+      `if(!res)return {comics:[],maxPage:1};return {comics:res.comics||[],maxPage:res.maxPage||1,next:res.next||''};` +
+      `}catch(e){return {error:String(e),comics:[],maxPage:1};}})()`;
+  }
+
+  buildFavoriteLoadNextScript(sourceKey: string, next: string, folderId: string | null): string {
+    const safeKey = JsEngineBridge.escapeJs(sourceKey);
+    const safeNext = JsEngineBridge.escapeJs(next);
+    const folderJs = folderId !== null && folderId.length > 0 ?
+      JsEngineBridge.escapeJs(folderId) : 'null';
+    return `(async function(){var s=ComicSource.sources[${safeKey}];` +
+      `if(!s||!s.favorites||!s.favorites.loadNext)return {error:'不支持',comics:[]};` +
+      `try{var res=await s.favorites.loadNext(${safeNext},${folderJs});` +
+      `if(!res)return {comics:[]};return {comics:res.comics||[],next:res.next||''};` +
+      `}catch(e){return {error:String(e),comics:[]};}})()`;
+  }
+
+  buildFavoriteLoadFoldersScript(sourceKey: string, comicId: string | null): string {
+    const safeKey = JsEngineBridge.escapeJs(sourceKey);
+    const comicJs = comicId !== null && comicId.length > 0 ?
+      JsEngineBridge.escapeJs(comicId) : 'null';
+    return `(async function(){var s=ComicSource.sources[${safeKey}];` +
+      `if(!s||!s.favorites||!s.favorites.loadFolders)return {error:'不支持',folders:{}};` +
+      `try{var res=await s.favorites.loadFolders(${comicJs});` +
+      `if(!res)return {folders:{},added:[]};var added=[];` +
+      `if(res.added&&Array.isArray(res.added))added=res.added;` +
+      `else if(res.subData&&Array.isArray(res.subData))added=res.subData;` +
+      `return {folders:res.folders||{},added:added};` +
+      `}catch(e){return {error:String(e),folders:{},added:[]};}})()`;
+  }
+
+  buildFavoriteAddOrDelScript(
+    sourceKey: string,
+    comicId: string,
+    folderId: string,
+    isAdding: boolean
+  ): string {
+    const safeKey = JsEngineBridge.escapeJs(sourceKey);
+    const safeComic = JsEngineBridge.escapeJs(comicId);
+    const safeFolder = JsEngineBridge.escapeJs(folderId);
+    return `(async function(){var s=ComicSource.sources[${safeKey}];` +
+      `if(!s||!s.favorites||!s.favorites.addOrDelFavorite)return {error:'不支持'};` +
+      `try{await s.favorites.addOrDelFavorite(${safeComic},${safeFolder},${isAdding});` +
+      `return {ok:true};}catch(e){return {error:String(e)};}})()`;
+  }
+
+  buildListFavoriteSourceKeysScript(): string {
+    return `(function(){var out=[];var keys=Object.keys(ComicSource.sources);` +
+      `for(var i=0;i<keys.length;i++){var s=ComicSource.sources[keys[i]];` +
+      `if(s&&s.favorites&&(typeof s.favorites.loadComics==='function'||` +
+      `typeof s.favorites.loadFolders==='function'))out.push(keys[i]);}return out;})()`;
+  }
+
+  async invokeFavoriteMeta(sourceKey: string): Promise<NetworkFavoriteMeta | null> {
+    if (!this.runtimeReady || !this.stagedSources.has(sourceKey)) {
+      return null;
+    }
+    const raw = await this.evaluateJson(this.buildFavoriteMetaScript(sourceKey), 'invokeFavoriteMeta');
+    if (!raw || typeof raw !== 'object') {
+      return null;
+    }
+    const obj = raw as Record<string, Object>;
+    const meta = new NetworkFavoriteMeta();
+    meta.sourceKey = sourceKey;
+    meta.favoriteKey = `${obj['favoriteKey'] ?? sourceKey}`;
+    meta.title = `${obj['title'] ?? sourceKey}`;
+    meta.multiFolder = obj['multiFolder'] === true;
+    meta.hasLoadComics = obj['hasLoadComics'] === true;
+    meta.hasLoadNext = obj['hasLoadNext'] === true;
+    meta.hasAddOrDel = obj['hasAddOrDel'] === true;
+    return meta;
+  }
+
+  async invokeFavoriteLoadComics(
+    sourceKey: string,
+    page: number,
+    folderId: string | null
+  ): Promise<CategoryComicsResult> {
+    if (!this.runtimeReady || !this.stagedSources.has(sourceKey)) {
+      const empty = new CategoryComicsResult();
+      empty.error = '引擎未就绪';
+      return empty;
+    }
+    const raw = await this.evaluateJson(
+      this.buildFavoriteLoadComicsScript(sourceKey, page, folderId),
+      'invokeFavoriteLoadComics'
+    );
+    const result = this.parseCategoryComicsResult(raw, sourceKey);
+    if (raw && typeof raw === 'object') {
+      const obj = raw as Record<string, Object>;
+      if (typeof obj['error'] === 'string') {
+        result.error = obj['error'] as string;
+      }
+    }
+    return result;
+  }
+
+  async invokeFavoriteLoadNext(
+    sourceKey: string,
+    next: string,
+    folderId: string | null
+  ): Promise<CategoryComicsResult> {
+    if (!this.runtimeReady || !this.stagedSources.has(sourceKey)) {
+      const empty = new CategoryComicsResult();
+      empty.error = '引擎未就绪';
+      return empty;
+    }
+    const raw = await this.evaluateJson(
+      this.buildFavoriteLoadNextScript(sourceKey, next, folderId),
+      'invokeFavoriteLoadNext'
+    );
+    const result = this.parseCategoryComicsResult(raw, sourceKey);
+    if (raw && typeof raw === 'object') {
+      const obj = raw as Record<string, Object>;
+      if (typeof obj['error'] === 'string') {
+        result.error = obj['error'] as string;
+      }
+      if (typeof obj['next'] === 'string') {
+        result.next = obj['next'] as string;
+      }
+    }
+    return result;
+  }
+
+  async invokeFavoriteLoadFolders(sourceKey: string, comicId: string | null): Promise<FavoriteFoldersResult> {
+    const result = new FavoriteFoldersResult();
+    if (!this.runtimeReady || !this.stagedSources.has(sourceKey)) {
+      result.error = '引擎未就绪';
+      return result;
+    }
+    const raw = await this.evaluateJson(
+      this.buildFavoriteLoadFoldersScript(sourceKey, comicId),
+      'invokeFavoriteLoadFolders'
+    );
+    if (!raw || typeof raw !== 'object') {
+      return result;
+    }
+    const obj = raw as Record<string, Object>;
+    if (typeof obj['error'] === 'string') {
+      result.error = obj['error'] as string;
+    }
+    const foldersRaw = obj['folders'];
+    if (foldersRaw && typeof foldersRaw === 'object') {
+      const map = foldersRaw as Record<string, Object>;
+      const keys = Object.keys(map);
+      for (let i = 0; i < keys.length; i++) {
+        result.folders[keys[i]] = `${map[keys[i]]}`;
+      }
+    }
+    if (Array.isArray(obj['added'])) {
+      const addedArr = obj['added'] as Array<Object>;
+      for (let i = 0; i < addedArr.length; i++) {
+        result.addedFolderIds.push(`${addedArr[i]}`);
+      }
+    }
+    return result;
+  }
+
+  async invokeFavoriteAddOrDel(
+    sourceKey: string,
+    comicId: string,
+    folderId: string,
+    isAdding: boolean
+  ): Promise<string> {
+    if (!this.runtimeReady || !this.stagedSources.has(sourceKey)) {
+      return '引擎未就绪';
+    }
+    const raw = await this.evaluateJson(
+      this.buildFavoriteAddOrDelScript(sourceKey, comicId, folderId, isAdding),
+      'invokeFavoriteAddOrDel'
+    );
+    if (!raw || typeof raw !== 'object') {
+      return '操作失败';
+    }
+    const obj = raw as Record<string, Object>;
+    if (obj['ok'] === true) {
+      return '';
+    }
+    return `${obj['error'] ?? '操作失败'}`;
+  }
+
+  async invokeListFavoriteSourceKeys(): Promise<string[]> {
+    if (!this.runtimeReady) {
+      return [];
+    }
+    const raw = await this.evaluateJson(this.buildListFavoriteSourceKeysScript(), 'invokeListFavoriteSourceKeys');
+    if (!raw || !Array.isArray(raw)) {
+      return [];
+    }
+    return raw as string[];
   }
 
 }

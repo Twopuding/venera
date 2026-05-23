@@ -2,6 +2,8 @@
 
 将开源漫画阅读器 [venera-app/venera](https://github.com/venera-app/venera) 完整移植到 **HarmonyOS 6.1.0 (API 23)**，采用 **HDS 沉浸光感材质**（`systemMaterialEffect`）与 Stage 模型 ArkTS 工程。
 
+纯AI编写移植
+
 > 上游项目已归档且停止维护，本仓库为社区鸿蒙移植版本，遵循 GPL-3.0 许可证。
 
 | 项目 | 说明 |
@@ -24,19 +26,19 @@
 | 沉浸光感底栏/标题栏 | — (Material 3) | ✅ 已完成 | `MaterialEffectHelper` + `HdsNavigation` / `HdsTabs` |
 | 本地漫画书架 | `local_comics_page.dart` | ✅ 已完成 | `LocalLibraryPage.ets` + `LocalComicService` |
 | 阅读器 | `pages/reader/*` | ✅ 已完成 | `ReaderPage`（横竖屏/滑条/章节）+ `PdfReaderPage` / `EpubReaderPage` + 拼图解码 |
-| 收藏 | `favorites/*` | 🟡 进行中 | `FavoritesPage` + `FavoritesService`（待本地文件夹/网络收藏双轨） |
-| 关注更新 | `follow_updates_page.dart` | 🟡 进行中 | `FollowUpdatesPage.ets`（占位，待 LocalFavorites） |
-| 图片收藏 | `image_favorites_page/*` | 🟡 进行中 | `ImageFavoritesPage.ets`（占位，待 ImageFavoriteManager） |
-| 发现 / 探索 Tab | `explore_page.dart` | 🟡 进行中 | `explore_pages` 多 Tab + `SingleExplorePanel` |
+| 收藏 | `favorites/*` | 🟡 进行中 | `FavoritesPage` 本地多选/复制移动/删除、关联网络夹同步；`NetworkFavoritesPanel` 转本地 + 分页列表 |
+| 关注更新 | `follow_updates_page.dart` | ✅ 基础完成 | `FollowUpdatesPage` + `FollowUpdatesService` + `followUpdatesFolder` |
+| 图片收藏 | `image_favorites_page/*` | 🟡 进行中 | `ImageFavoritesPage` 横向缩略图/多选删除；`ImageFavoritesPhotoViewPage` 大图 Swiper；`ImageFavoriteImageUtil` |
+| 发现 / 探索 Tab | `explore_page.dart` | 🟡 进行中 | `ExplorePage` 可滚动 Tab+添加、`SingleExplorePanel` 网格/multiPart/mixed/viewMore/loadNext、FAB 刷新、Tab 重按回顶；`ComicGridTile`/`ComicListRow` 收藏·历史角标 |
 | 漫画源管理 | `comic_source_page.dart` | ✅ 已完成 | `ComicSourcePage`（添加/删除/更新/官方列表/编辑/设置/登录）+ 31 个 venera-configs |
 | 分类浏览 | `categories_page.dart` | 🟡 进行中 | `CategoriesPage` + `CategoryComicsPage` + 排行榜入口 |
-| 搜索 | `search_page.dart` | 🟡 进行中 | `SearchPage` + `AggregatedSearchPage` + `SearchSourcesSettingsPage` |
+| 搜索 | `search_page.dart` / `search_result_page.dart` | 🟡 进行中 | `SearchPage`（linkHandler 打开漫画/idMatcher/标签建议/onTagSuggestionSelected/选项 chips）+ `SearchResultPage`（顶栏 EhTag 建议/validateOptions/设置 sheet）+ 聚合搜索 |
 | 排行榜 | `ranking_page.dart` | ✅ 基础完成 | `RankingPage` + `categoryComics.ranking.load` |
-| 漫画详情 | `comic_details_page/*` | 🟡 进行中 | `ComicDetailPage` 章节/标签/评论/推荐/下载本章 |
+| 漫画详情 | `comic_details_page/*` | 🟡 进行中 | `ComicDetailPage`（继续阅读/操作栏/分组标签/收藏面板/评论页/分享/点赞）+ `ComicFavoritePanelPage` + `ComicCommentsPage` |
 | 下载队列 | `download.dart` | 🟡 进行中 | `DownloadService` 重试/删除/清除已完成 |
 | 漫画源 (JS) | `flutter_qjs` + `source.js` | ✅ 基础完成 | QuickJS NAPI + `JsEngineBridge` + `JsMessageHost` |
 | 网络 HTTP | `rhttp` / Dio | 🟡 进行中 | `@kit.NetworkKit` `HttpService` |
-| 设置 | `settings/*` | 🟡 进行中 | 阅读模式/代理/WebDAV/聚合搜索源/探索页/清缓存/Cookie |
+| 设置 | `settings/*` | 🟡 进行中 | `ExploreSettingsPage` 对齐 `explore_settings.dart`；阅读模式/代理/WebDAV/清缓存/Cookie |
 | WebView 登录 | `webview.dart` | 🟡 进行中 | `SourceLoginWebPage` + `WebCookieBridge` |
 | CBZ/ZIP/7z/PDF/EPUB | `utils/cbz.dart` 等 | 🟡 进行中 | ZIP/CBZ + NAPI `extract7z` + PDFKit + ArkWeb EPUB |
 | WebDAV 同步 | `data_sync.dart` | 🟡 进行中 | `WebDavSyncService` JSON 上传/拉取 |
@@ -51,11 +53,11 @@
 ## 移植进度总览
 
 ```
-整体进度 ██████████████████░░ 约 85%
+整体进度 ███████████████████░ 约 88%
 
 阶段 0  工程脚手架 / API 23 配置     [████████████████████] 100%
 阶段 1  HDS 沉浸光感主壳 UI          [████████████████████] 100%
-阶段 2  数据层 (Preferences/模型)    [███████████████████░]  95%
+阶段 2  数据层 (Preferences/RDB)      [████████████████████]  98%
 阶段 3  本地书架与阅读器              [████████████████████]  95%
 阶段 4  JS 漫画源引擎 (QuickJS)      [████████████████████] 100%
 阶段 5  下载 / 归档 / 多格式          [██████████████░░░░░░]  70%
@@ -64,60 +66,22 @@
 
 **最近更新（2026-05-23）**
 
-- **首次安装卡在「脚本引擎」修复**：`loadBundledIndex` 内 `syncExplorePagesFromSources` → `listExplorePageTitles` → `ensureEngineReady` 与进行中的 `initEngineAndIndex` 互相等待导致死锁；首启 index 加载不再同步 explore 页（装入图源后仍会 sync）；`JsCookieStore` 首启用 `accessSync` 探测 `cookies.json`，避免 async 上下文中 `openSync` 触发 `Pending exception`
-- **二级页安全区**：全屏窗口下 `SafeAreaInsets`（`getWindowAvoidArea` → AppStorage）为所有 router 二级页根布局增加顶/底内边距；`LocalLibraryPage` 补顶栏返回
-- **首次安装卡在「脚本引擎」**：`initRuntime` 曾在 worker 中先于 `registerMessageHandler` 执行 `init.js`，`sendMessage` 无法回调主线程导致挂起；现改为 `prepareRuntime` → `registerMessageHandler` → 主线程 `runInitScript`；首次安装在 `Index` 上以 `StartupSplash` 遮罩显示进度
-- **启动纯白屏修复**：`LaunchPage` 零 Service import；`AppBootstrapLite` 仅 Preferences；系统启动窗与引导页同为浅灰 `card_background`
-- **启动白屏（JS 引擎）**：`initRuntime` 在 worker 线程异步执行；`ENGINE_READY_KEY` 控制发现/分类刷新时机
-- **启动加载引导**：`StartupSplash` 仅覆盖本地数据快速初始化（图标 + `LoadingProgress`），完成后立即进入主界面
-- **首页顶栏空白修复**：`MainShell` 移除无效的 `bindToScrollable`（子页 `Scroller` 未与导航绑定，`MINI` 标题模式下仍预留大标题占位）；搜索条紧贴「首页」标题栏
-- **漫画源安装解析**：`addSourceFromScript` 先 `ensureEngineReady`；`SourceScriptUtil.parseMetaFromScript` 静态解析 name/key（支持类前有辅助函数的 jcomic 等）；QuickJS eval 失败时自动回退；`version` 缺省为 `1.0.0`
-- **漫画源登录修复**：`ensureSourceReady` 从沙箱/staged 重试 `loadSourceScript` 直至装入 QuickJS；移除 staged 占位导致的假「登录」入口；`openLoginPage` 未装入时 toast 不再误跳登录页；首页漫画源芯片改为 `ComicSource.all()` 等价（仅已装入源）
-- **漫画源页 UI/功能对齐截图**：`ComicSourcePage` 可滚动列表、图标化编辑/更新/删除；每源 settings 支持图源 `translation` 中文化（API 地址/分流/签到等）；`input` 经 `JsUiDialogService` 保存；`callback` 显示加载态；已登录时「重新登录」+「注销」对齐上游；检查更新弹出可更新列表对话框；帮助链打开官方文档
-- **二级页导航**：新增 `SecondaryPageHeader`（顶栏 `chevron_left` 返回，对齐上游 AppBar）；移除设置/搜索/历史/下载/漫画详情等二级页底部「返回」按钮；表单页（编辑源、探索分区）保留底部取消/保存
-- **图源装入卡顿修复**：`JsEngineBridge.init` 不再同步编译全部沙箱图源；启动后后台分批 `loadCachedSourcesFromDiskAsync` → 默认三源 → `registerPendingStagedInBackground`；批量安装仅 stage 脚本、末尾一次性 `registerSourcesToNative`；`getInstalledSources` 仅返回 QuickJS 内 `ComicSource.sources`（`ComicSourcePage` 打开时预装入 staged）
-- **漫画源管理 1:1 移植**：`ComicSourcePage` 对齐上游 `comic_source_page.dart`——URL/文件添加、官方 `index.json` 列表（`ComicSourceListPage`）、检查更新与批量更新、单源编辑（`ComicSourceEditPage`）、删除、每源 settings（select/switch/input/callback）、账号密码/WebView 登录；`ComicSourceService` 增删改与 `explore_pages`/`categoryPages`/`searchSources` 同步
-- **默认图源精简**：`AppConstants.DEFAULT_SOURCE_KEYS` = `picacg` / `wnacg` / `jm`，`AppBootstrap` 仅默认装入上述三源（不再首启安装全部 31 个）
-- **首页布局对齐上游**：`HomePage` 改为仪表盘（搜索条、WebDAV 同步、历史/本地横滑预览、漫画源芯片、关注更新/图片收藏入口）；完整本地书架迁至 `LocalLibraryPage`
-- **主导航对齐上游**：Tab0 标题为「首页」；标题栏仅在非首页显示搜索，设置始终可见（对齐 `MainPage` paneActions）
-- **新增页面**：`FollowUpdatesPage`、`ImageFavoritesPage`（路由已注册，功能待后续 parity）
-- **主线程卡死修复（THREAD_BLOCK_6S）**：`loadSource` / `evaluate` NAPI 均改为 Promise + 后台线程执行 QuickJS，主线程可继续处理 `sendMessage` 的 threadsafe 回调；`g_qjs_mu` 递归锁串行化上下文访问；移除 ArkTS 侧 `handleComputeSync`（`compute` 由原生 `venera_compute_on_context` 处理）；搜索/发现/聚合搜索等页面适配异步 evaluate
-- **启动加速与异常修复**：`ComicSourceService.init` 仅加载 index，31 个图源脚本在首帧后后台装入（`AppBootstrap.installSourcesInBackground`）；`isScriptOnDisk` 改用 `fileIo.accessSync`（`FileIoUtil.existsSync`），避免 `statSync` 在 async 中触发 `Pending exception before NotifyNativeReturn`；装入过程每 4 个源让出 UI 线程
-- **启动窗口**：系统要求保留 `startWindowIcon` / `startWindowBackground`；已改为应用 `layered_image` + 与主界面一致的 `page_background`
-- **应用图标**：`AppScope` / `entry` 资源使用上游 [venera-app/venera `assets/app_icon.png`](https://github.com/venera-app/venera/blob/master/assets/app_icon.png)（1024×1024）；分层图标前景与启动页图标同源
-- **启动体验**：`EntryAbility` 先 `loadContent` 再后台 `AppBootstrap`；CDN 同步与图源装入均在后台；HTTP 增加连接/读取超时；浅色模式下状态栏图标改为深色
-- **本地书架完善**：首页导入/扫描、标题栏快捷导入、长按删除漫画（`FileIoUtil` 递归删目录）
-- **阅读器增强**：`ReaderPage` 跟随设置横/竖向翻页、页码滑条、本地多章节切换；远程图预取缓存
-- **统一跳转**：`ReaderLaunchUtil` 本地 PDF/EPUB/图片与历史记录一致路由
-- **PDF/EPUB 历史**：`PdfReaderPage` / `EpubReaderPage` 写入 `HistoryService`，继续阅读可恢复
-- **官方图源完整内置**：`rawfile/comic_sources/` 打包 [venera-configs](https://github.com/venera-app/venera-configs) 全部 31 个脚本 + `index.json`；`scripts/fetch-comic-sources.ps1` 可同步更新
-- **默认三源**：首启后台仅装入 **Picacg**、**绅士漫画**（`wnacg`）、**禁漫天堂**（`jm`）；其余源可在漫画源页或官方列表手动添加
-- **离线安装**：`ComicSourceService` 优先 CDN，失败回退内置包；首帧后后台装入 QuickJS；合并 `explore_pages`（对齐上游 `_addAllPagesWithComicSource`）
-- **发现 Tab 多 Tab**：`ExplorePage` 按 `explore_pages` 展示探索分区；`ExplorePagesPickerPage` 勾选；`SingleExplorePanel` 单页加载
-- **JsEngineBridge**：`invokeListExplorePageTitles` / `invokeExploreByTitle`（multiPart / multiPageComicList / mixed）
-- **聚合搜索源设置**：`SearchSourcesSettingsPage` 可视化 `searchSources`；设置页入口
-- **漫画源页增强**：`ComicSourcePage` 合并原发现页源列表（搜索/分类/推荐/登录/刷新）
-- **聚合搜索**：`AggregatedSearchPage` 多源横向预览；`SearchPage`「聚合搜索」入口；`AppDataService.searchSources` 可配置参与源
-- **排行榜**：`RankingPage`（`categoryComics.ranking.load`）；`CategoriesPage` 顶部排行榜芯片（如 Picacg 日/周/月）
-- **漫画源索引**：`ComicSourceService` 兼容 `index.json` 顶层数组；CDN 脚本按 `fileName`（如 `baozi.js`）拉取
-- **JsEngineBridge**：`invokeListRankingPages` / `invokeRankingComics` / `invokeSearchableSourceKeys`
-- **漫画详情增强**：`invokeComicInfo`（标签/评论/相关推荐）；详情页跳转推荐漫画
-- **下载队列**：任务重试/删除、清除已完成；主壳与设置页快捷入口
-- **探索推荐**：`ExploreRecommendPage` + `invokeExplore`（漫画源 `explore.load` 分区）
-- **EPUB 阅读**：`EpubParseUtil`（OPF 书脊）+ `EpubReaderPage`（API 23 ArkWeb XHTML）
-- **WebDAV 同步**：`WebDavSyncService`（PUT/GET `venera_sync.json`：收藏/历史/设置）
-- **WebView 登录**：`SourceLoginWebPage` + `WebCookieBridge` → `JsCookieStore`；设置页清除 Cookie
-- **PDF 阅读**：`PdfReaderPage`（API 23 `@kit.PDFKit`）+ 本地 PDF 导入
-- **拼图解码**：`JsImageService` + `ComicImageResolver`（`modifyImage` / `onResponse` 完整链路）
-- **7z/cb7**：NAPI `extract7z` + `scripts/fetch-lzma.ps1`（可选 LZMA SDK）
-- **EhTag 标签翻译**：`TagTranslationService` + `tags_tw.json`（设置开关）
-- **HTML DOM 桥接**：`JsHtmlDomService` 纯 ArkTS `HtmlDocument` / `querySelector`
-- **UI 桥接**：`JsUiDialogService`（对话框/输入/Loading）+ `JsUiBridge`（Toast / `openLink`）
-- **convert 同步哈希**：`venera_convert.cpp` MD5/SHA/HMAC/Base64（QuickJS 同步路径）
-- **远程阅读链路**：`ReaderPage` → `invokeComicPageEntries` → `ImageCacheUtil` 磁盘缓存
-- **工程脚手架**：Stage 模型、`compatibleSdkVersion` / `targetAPIVersion` = **6.1.0(23)**、HDS 沉浸光感主壳
+- **发现 Tab**：`ExplorePage` 多 Tab / mixed·multiPart·loadNext / 「查看更多」；FAB 刷新与重按回顶
+- **探索设置**：`ExploreSettingsPage`——漫画块模式·缩放、各页图源、角标开关、屏蔽词、搜索默认项等
+- **漫画块角标**：`ComicGridTile` / `ComicListRow` 收藏书签与阅读进度（受设置开关控制）
+- **搜索**：`SearchPage` + `SearchResultPage`——EhTag 建议、链接/ID 解析、选项 chips、改词重搜、自动语言过滤
+- **漫画详情**：`ComicDetailPage` 操作栏·标签·收藏面板·评论/推荐；`ComicFavoritePanelPage`
+- **收藏**：本地多选复制/移动；`NetworkFavoritesPanel` 网络列表与「转本地」；阅读器页图片收藏
+- **图片收藏**：横向缩略图、多选删除、大图 `ImageFavoritesPhotoViewPage`
+- **关注更新**：`FollowUpdatesPage` + `FollowUpdatesService` 基础检测流程
+- **漫画源**：`ComicSourcePage` 管理 1:1（添加/更新/设置/登录）；首启默认三源；更新后 `reloadManager` 全量重载
+- **启动与引擎**：`initRuntime` 初始化顺序与首启 index 死锁修复；`StartupSplash`；二级页 `SafeAreaInsets`
+- **性能**：`loadSource` / `evaluate` 后台线程；图源分批装入，避免主线程卡死
+- **主壳与首页**：`MainShell` 四栏导航；`HomePage` 仪表盘；`SecondaryPageHeader` 顶栏返回
+- **阅读与格式**：`ReaderPage` 横竖翻页·滑条；PDF/EPUB；远程图缓存；拼图解码（`JsImageService`）
+- **基础设施**：QuickJS NAPI + `JsEngineBridge`；内置 31 图源；WebDAV 同步；EhTag 翻译
 
-> 完整变更历史见 Git 提交记录；**HarmonyProject-build** skill 要求在每次编译通过后同步本节（Venera 细则见 `.cursor/skills/HarmonyProject-build/OVERRIDE.md`）。
+> 更早条目见 Git 提交记录；编译通过后由 **HarmonyProject-build** 同步本节（≤18 条，见 `OVERRIDE.md`）。
 
 ---
 
@@ -178,7 +142,10 @@ venera/
 | `pages/image_favorites_page/*` | `pages/image_favorites/ImageFavoritesPage.ets` |
 | `pages/reader/*` | `pages/reader/*` + `common/utils/ReaderLaunchUtil.ets` |
 | `utils/cbz.dart` | `common/utils/ArchiveExtractUtil.ets` |
-| `foundation/favorites.dart` | `common/services/FavoritesService.ets` |
+| `foundation/favorites.dart` | `common/services/LocalFavoritesService.ets` + `FavoritesService.ets`（WebDAV 扁平列表） |
+| `foundation/follow_updates.dart` | `common/services/FollowUpdatesService.ets` |
+| `foundation/image_favorites.dart` | `common/services/ImageFavoriteService.ets` |
+| `pages/follow_updates_page.dart` | `pages/follow/FollowUpdatesPage.ets` |
 | `foundation/comic_source/*` | `common/services/ComicSourceService.ets` |
 | `foundation/js_engine.dart` | `common/services/JsEngineBridge.ets` + `JsMessageHost.ets` |
 | `foundation/data_sync.dart` | `common/services/WebDavSyncService.ets` |
@@ -186,10 +153,14 @@ venera/
 | `network/download.dart` | `common/services/DownloadService.ets` |
 | `network/app_dio.dart` | `common/services/HttpService.ets` |
 | `pages/main_page.dart` | `pages/main/MainShell.ets` |
+| `pages/comic_details_page/comic_page.dart` | `pages/comic/ComicDetailPage.ets` + `ComicFavoritePanelPage` + `ComicCommentsPage` |
+| `pages/search_page.dart` | `pages/search/SearchPage.ets` |
+| `pages/search_result_page.dart` | `pages/search/SearchResultPage.ets` |
 | `pages/aggregated_search_page.dart` | `pages/search/AggregatedSearchPage.ets` |
 | `pages/ranking_page.dart` | `pages/ranking/RankingPage.ets` |
 | `pages/explore_page.dart` | `pages/explore/ExplorePage.ets` + `SingleExplorePanel.ets` + `ExplorePagesPickerPage.ets` |
 | `pages/comic_source_page.dart` | `pages/sources/ComicSourcePage.ets` |
+| `pages/settings/explore_settings.dart` | `pages/settings/ExploreSettingsPage.ets` + `CategoryPagesPickerPage.ets` + `BlockingWordsPage.ets` |
 | `settings searchSources` | `pages/settings/SearchSourcesSettingsPage.ets` |
 | `init.dart` | `common/services/AppBootstrap.ets` |
 
@@ -269,8 +240,9 @@ hvigorw assembleHap
 - [x] 排行榜（`RankingPage` / `categoryComics.ranking`）
 - [x] 探索页多 Tab（`explore_pages` 配置，对齐上游 ExplorePage）
 - [x] 聚合搜索源勾选 UI（`SearchSourcesSettingsPage`）
-- [ ] 关注更新完整实现（`FollowUpdatesPage` 占位已对齐入口）
-- [ ] 图片收藏完整实现（`ImageFavoritesPage` 占位已对齐入口）
+- [x] 关注更新基础实现（`FollowUpdatesPage` + `LocalFavoritesService` + `FollowUpdatesService`）
+- [x] 图片收藏阅读器写入（`ReaderPage` + `ImageFavoriteService`；大图浏览/多选待补）
+- [x] 收藏 Tab 网络收藏基础（`NetworkFavoritesPanel` + 侧栏/设置页；多选/转本地待补）
 - [ ] 应用锁 / 生物识别
 
 ---

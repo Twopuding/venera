@@ -34,14 +34,18 @@ struct ComicSourceListPage {
     }
   }
 
-  private refreshInstalled(): void {
-    ComicSourceService.getInstance().getInstalledSources().then((list) => {
-      const keys: string[] = [];
-      for (let i = 0; i < list.length; i++) {
-        keys.push(list[i].key);
-      }
-      this.installedKeys = keys;
-    });
+  private async refreshInstalled(): Promise<void> {
+    await ComicSourceService.getInstance().ensureEngineReady();
+    const list = await ComicSourceService.getInstance().getInstalledSources();
+    const keys: string[] = [];
+    for (let i = 0; i < list.length; i++) {
+      keys.push(list[i].key);
+    }
+    this.installedKeys = keys;
+  }
+
+  onPageShow(): void {
+    this.refreshInstalled();
   }
 
   private async loadIndex(): Promise<void> {
@@ -66,7 +70,7 @@ struct ComicSourceListPage {
       promptAction.showToast({ message: err, duration: 2500 });
       return;
     }
-    this.refreshInstalled();
+    await this.refreshInstalled();
     promptAction.showToast({ message: '已添加', duration: 1500 });
   }
 
@@ -89,7 +93,16 @@ struct ComicSourceListPage {
           .fontSize(11)
           .fontColor(SysTheme.FONT_SECONDARY)
           .margin({ top: 6 })
+        Text($r('app.string.repo_url_hint'))
+          .fontSize(11)
+          .fontColor(SysTheme.FONT_SECONDARY)
+          .margin({ top: 8 })
         Row() {
+          Button($r('app.string.comic_source_help'))
+            .type(ButtonType.Normal)
+            .height(32)
+            .fontSize(12)
+            .onClick(() => ComicSourceService.getInstance().openHelpDoc())
           Blank().layoutWeight(1)
           Button($r('app.string.refresh_sources'))
             .type(ButtonType.Capsule)

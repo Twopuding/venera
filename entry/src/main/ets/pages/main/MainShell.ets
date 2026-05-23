@@ -7,6 +7,7 @@ import { FavoritesPage } from '../favorites/FavoritesPage';
 import { ExplorePage } from '../explore/ExplorePage';
 import { CategoriesPage } from '../categories/CategoriesPage';
 import { SysTheme } from '../../common/theme/SysTheme';
+import { EXPLORE_SCROLL_TOP_KEY } from '../../common/constants/StartupKeys';
 
 /**
  * 主壳层：HdsNavigation + HdsTabs，API 23 悬浮底栏与沉浸光感材质。
@@ -90,6 +91,12 @@ export struct MainShell {
           this.syncPageTitle(index);
           AppDataService.getInstance().settings.initialPage = index;
           AppDataService.getInstance().save();
+        })
+        .onTabBarClick((index: number) => {
+          if (index === 2 && this.currentIndex === 2) {
+            const prev = AppStorage.get<number>(EXPLORE_SCROLL_TOP_KEY) ?? 0;
+            AppStorage.setOrCreate(EXPLORE_SCROLL_TOP_KEY, prev + 1);
+          }
         })
         .layoutWeight(1)
       }

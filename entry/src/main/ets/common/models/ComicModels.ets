@@ -1,5 +1,11 @@
 /** Comic domain models ported from upstream lib/foundation/comic_source/models.dart */
 
+/** loadInfo 按命名空间分组的标签（对齐 upstream ComicDetails.tags） */
+export class ComicTagGroup {
+  namespace: string = '';
+  tags: string[] = [];
+}
+
 export class Comic {
   title: string = '';
   cover: string = '';
@@ -12,6 +18,17 @@ export class Comic {
   language?: string;
   favoriteId?: string;
   stars?: number;
+  /** 上游 comic.loadInfo 的 updateTime 字段 */
+  updateTime?: string;
+  /** 详情页扩展字段（对齐 ComicDetails） */
+  url?: string;
+  isLiked?: boolean;
+  likesCount?: number;
+  commentCount?: number;
+  uploader?: string;
+  uploadTime?: string;
+  isFavorite?: boolean;
+  tagGroups?: ComicTagGroup[];
 }
 
 export class ComicChapter {
@@ -58,6 +75,8 @@ export class InstalledComicSource {
   version: string = '';
   url: string = '';
   filePath: string = '';
+  /** 脚本要求的最低应用版本（对齐上游 minAppVersion） */
+  minAppVersion: string = '';
   /** index 中有更新版本时填入 */
   pendingVersion: string = '';
 }
@@ -94,6 +113,27 @@ export class RankingPageInfo {
   options: string[] = [];
 }
 
+/** 搜索页可选图源（对齐上游 findSearchSources） */
+export class SearchPageSourceItem {
+  key: string = '';
+  name: string = '';
+}
+
+/** 搜索选项定义（对齐上游 search.optionList） */
+export class SearchOptionDef {
+  label: string = '';
+  type: string = 'select';
+  options: SourceSettingOption[] = [];
+  defaultValue: string = '';
+}
+
+/** 搜索框智能建议上下文（linkHandler / idMatcher） */
+export class SearchSuggestionContext {
+  linkSourceKey: string = '';
+  linkComicId: string = '';
+  idMatchSources: SearchPageSourceItem[] = [];
+}
+
 /** 聚合搜索单源预览行 */
 export class AggregatedSearchRow {
   sourceKey: string = '';
@@ -115,22 +155,74 @@ export class CategoryItem {
 export class CategoryComicsResult {
   comics: Comic[] = [];
   maxPage: number = 1;
+  /** favorites.loadNext 游标 */
+  next: string = '';
+  error: string = '';
+}
+
+/** 图源 favorites 元数据 */
+export class NetworkFavoriteMeta {
+  sourceKey: string = '';
+  favoriteKey: string = '';
+  title: string = '';
+  multiFolder: boolean = false;
+  hasLoadComics: boolean = false;
+  hasLoadNext: boolean = false;
+  hasAddOrDel: boolean = false;
+}
+
+/** favorites.loadFolders 结果 */
+export class FavoriteFoldersResult {
+  folders: Record<string, string> = {};
+  /** 漫画已加入的网络收藏夹 id 列表 */
+  addedFolderIds: string[] = [];
+  error: string = '';
 }
 
 /** 漫画源 explore.load 分区（如包子「热门推荐」） */
 export class ExploreSection {
   title: string = '';
   comics: Comic[] = [];
+  /** 对齐 ExplorePagePart.viewMore */
+  viewMoreJson: string = '';
+}
+
+/** mixed 探索页块：分区标题行或纯漫画网格 */
+export class ExploreMixedBlock {
+  kind: string = 'section';
+  title: string = '';
+  comics: Comic[] = [];
+  viewMoreJson: string = '';
+}
+
+/** explore 页元数据（标题 → 图源） */
+export class ExplorePageMeta {
+  title: string = '';
+  sourceKey: string = '';
+}
+
+/** 分类 Tab 页元数据 — 对齐 upstream categoryData.key */
+export class CategoryPageMeta {
+  key: string = '';
+  title: string = '';
+  sourceKey: string = '';
 }
 
 /** 按 explore_pages 标题加载单页探索内容 */
 export class ExplorePageLoadResult {
   sourceKey: string = '';
   exploreTitle: string = '';
+  /** multiPartPage / singlePageWithMultiPart */
   sections: ExploreSection[] = [];
+  /** multiPageComicList */
   comics: Comic[] = [];
+  /** mixed */
+  mixedBlocks: ExploreMixedBlock[] = [];
   maxPage: number = 1;
   page: number = 1;
+  /** loadNext 游标 */
+  nextCursor: string = '';
+  error: string = '';
 }
 
 /** EPUB 书脊章节 */
@@ -171,6 +263,8 @@ export class ReadingHistoryEntry {
   directory: string = '';
   chapterId: string = '';
   pageIndex: number = 0;
+  /** 当前章节总页数（1-based 展示用）— 对齐 upstream History.maxPage */
+  maxPage?: number;
   updatedAt: number = 0;
 }
 

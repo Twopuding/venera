@@ -2,94 +2,84 @@ import { SafeAreaInsets } from '../../common/layout/SafeAreaInsets';
 import { router } from '@kit.ArkUI';
 import { AppDataService } from '../../common/services/AppDataService';
 import { ComicSourceService } from '../../common/services/ComicSourceService';
+import { CategoryPageMeta } from '../../common/models/ComicModels';
 import { SysTheme } from '../../common/theme/SysTheme';
 import { SecondaryPageHeader } from '../../common/components/SecondaryPageHeader';
 
-/** 配置发现 Tab 展示的 explore_pages */
+/** 配置分类 Tab 展示的源 — 对齐 upstream setCategoryPagesWidget */
 @Entry
 @Component
-struct ExplorePagesPickerPage {
-  @State available: string[] = [];
-  @State displayLabels: string[] = [];
+struct CategoryPagesPickerPage {
+  @State available: CategoryPageMeta[] = [];
   @State selected: string[] = [];
 
   aboutToAppear(): void {
+    this.selected = [...AppDataService.getInstance().settings.categoryPages];
     this.loadAvailable();
-    this.selected = [...AppDataService.getInstance().settings.explorePages];
   }
 
   private async loadAvailable(): Promise<void> {
-    const meta = await ComicSourceService.getInstance().listExplorePageMeta();
-    const titles: string[] = [];
-    const labels: string[] = [];
-    for (let i = 0; i < meta.length; i++) {
-      titles.push(meta[i].title);
-      const label = await ComicSourceService.getInstance().getExploreTabLabel(meta[i].title);
-      labels.push(label);
-    }
-    this.available = titles;
-    this.displayLabels = labels;
+    this.available = await ComicSourceService.getInstance().listCategoryPageMeta();
   }
 
-  private labelFor(title: string): string {
-    const idx = this.available.indexOf(title);
-    if (idx >= 0 && this.displayLabels[idx]) {
-      return this.displayLabels[idx];
-    }
-    return title;
+  private isSelected(key: string): boolean {
+    return this.selected.indexOf(key) >= 0;
   }
 
-  private isSelected(title: string): boolean {
-    return this.selected.indexOf(title) >= 0;
-  }
-
-  private toggle(title: string): void {
-    const idx = this.selected.indexOf(title);
+  private toggle(key: string): void {
+    const idx = this.selected.indexOf(key);
     if (idx >= 0) {
       this.selected.splice(idx, 1);
     } else {
-      this.selected.push(title);
+      this.selected.push(key);
     }
     this.selected = [...this.selected];
   }
 
   private async save(): Promise<void> {
-    AppDataService.getInstance().settings.explorePages = [...this.selected];
+    AppDataService.getInstance().settings.categoryPages = [...this.selected];
     await AppDataService.getInstance().save();
     router.back();
   }
 
   build() {
     Column() {
-      SecondaryPageHeader({ title: $r('app.string.explore_pages_settings') })
+      SecondaryPageHeader({ title: $r('app.string.category_pages_settings') })
 
-      Text($r('app.string.explore_pages_hint'))
+      Text($r('app.string.category_pages_hint'))
         .fontSize(12)
         .fontColor(SysTheme.FONT_SECONDARY)
         .padding({ left: 16, right: 16, bottom: 8 })
 
       if (this.available.length === 0) {
-        Text($r('app.string.explore_pages_empty'))
+        Text($r('app.string.category_pages_empty'))
           .fontSize(14)
           .fontColor(SysTheme.FONT_SECONDARY)
           .padding(16)
           .layoutWeight(1)
       } else {
         List() {
-          ForEach(this.available, (title: string) => {
+          ForEach(this.available, (meta: CategoryPageMeta) => {
             ListItem() {
               Row() {
-                Text(this.labelFor(title))
-                  .fontSize(16)
-                  .fontColor(SysTheme.FONT_PRIMARY)
-                  .layoutWeight(1)
-                Toggle({ type: ToggleType.Switch, isOn: this.isSelected(title) })
-                  .onChange(() => this.toggle(title))
+                Column() {
+                  Text(meta.title)
+                    .fontSize(16)
+                    .fontColor(SysTheme.FONT_PRIMARY)
+                  Text(meta.key)
+                    .fontSize(11)
+                    .fontColor(SysTheme.FONT_SECONDARY)
+                    .margin({ top: 2 })
+                }
+                .alignItems(HorizontalAlign.Start)
+                .layoutWeight(1)
+                Toggle({ type: ToggleType.Switch, isOn: this.isSelected(meta.key) })
+                  .onChange(() => this.toggle(meta.key))
               }
               .width('100%')
               .padding(16)
             }
-          }, (title: string) => title)
+          }, (meta: CategoryPageMeta) => meta.key)
         }
         .layoutWeight(1)
       }

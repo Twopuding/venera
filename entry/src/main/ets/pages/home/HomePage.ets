@@ -13,6 +13,8 @@ import { ImageCacheUtil } from '../../common/utils/ImageCacheUtil';
 import { ReaderLaunchUtil } from '../../common/utils/ReaderLaunchUtil';
 import { HomeSectionCard } from '../../common/components/HomeSectionCard';
 import { ENGINE_READY_KEY } from '../../common/constants/StartupKeys';
+import { LocalFavoritesService } from '../../common/services/LocalFavoritesService';
+import { ImageFavoriteService } from '../../common/services/ImageFavoriteService';
 
 /**
  * 首页仪表盘 — 对齐 upstream lib/pages/home_page.dart
@@ -44,6 +46,8 @@ export struct HomePage {
     HistoryService.getInstance().onChange(this.refreshAll);
     LocalComicService.getInstance().onChange(this.refreshAll);
     DownloadService.getInstance().onChange(this.refreshAll);
+    LocalFavoritesService.getInstance().onChange(this.refreshAll);
+    ImageFavoriteService.getInstance().onChange(this.refreshAll);
   }
 
   onPageShow(): void {
@@ -62,18 +66,30 @@ export struct HomePage {
     this.loadComicSourceNames();
     const settings = AppDataService.getInstance().settings;
     this.webdavEnabled = settings.webdavUrl.trim().length > 0;
-    this.followUpdateCount = 0;
-    this.imageFavoriteCount = 0;
+    const followFolder = AppDataService.getInstance().settings.followUpdatesFolder;
+    if (followFolder.length > 0) {
+      LocalFavoritesService.getInstance().countUpdates(followFolder).then((n: number) => {
+        this.followUpdateCount = n;
+      });
+    } else {
+      this.followUpdateCount = 0;
+    }
+    ImageFavoriteService.getInstance().refreshLength().then(() => {
+      this.imageFavoriteCount = ImageFavoriteService.getInstance().getLength();
+    });
   }
 
+  /** 对齐上游 ComicSource.all()：仅已装入 QuickJS 的源 */
   private loadComicSourceNames(): void {
-    const indexSources = ComicSourceService.getInstance().getSources();
-    const names: string[] = [];
-    for (let i = 0; i < indexSources.length; i++) {
-      const n = indexSources[i].name.length > 0 ? indexSources[i].name : indexSources[i].key;
-      names.push(n);
-    }
-    this.comicSourceNames = names;
+    ComicSourceService.getInstance().getInstalledSources().then((list) => {
+      const names: string[] = [];
+      for (let i = 0; i < list.length; i++) {
+        names.push(list[i].name.length > 0 ? list[i].name : list[i].key);
+      }
+      this.comicSourceNames = names;
+    }).catch(() => {
+      this.comicSourceNames = [];
+    });
   }
 
   private async importComics(): Promise<void> {
@@ -387,7 +403,12 @@ export struct HomePage {
 
   @Builder
   followUpdatesHint() {
-    if (this.followUpdateCount === 0) {
+    if (this.followUpdateCount > 0) {
+      Text(`${this.followUpdateCount} 部有更新`)
+        .fontSize(13)
+        .fontColor(SysTheme.EMPHASIZE)
+        .padding({ left: 16, right: 16, bottom: 12 })
+    } else {
       Text($r('app.string.follow_updates_hint'))
         .fontSize(13)
         .fontColor(SysTheme.FONT_SECONDARY)

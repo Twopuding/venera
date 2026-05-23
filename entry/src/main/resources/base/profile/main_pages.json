@@ -9,12 +9,18 @@
     "pages/explore/ExplorePagesPickerPage",
     "pages/common/JsSelectDialogPage",
     "pages/comic/ComicDetailPage",
+    "pages/comic/ComicFavoritePanelPage",
+    "pages/comic/ComicCommentsPage",
     "pages/search/SearchPage",
+    "pages/search/SearchResultPage",
     "pages/search/AggregatedSearchPage",
     "pages/categories/CategoryComicsPage",
     "pages/ranking/RankingPage",
     "pages/settings/SettingsPage",
+    "pages/settings/ExploreSettingsPage",
     "pages/settings/SearchSourcesSettingsPage",
+    "pages/settings/CategoryPagesPickerPage",
+    "pages/settings/BlockingWordsPage",
     "pages/download/DownloadPage",
     "pages/sources/ComicSourcePage",
     "pages/sources/ComicSourceListPage",
@@ -26,6 +32,8 @@
     "pages/local/LocalComicDetailPage",
     "pages/history/HistoryPage",
     "pages/follow/FollowUpdatesPage",
-    "pages/image_favorites/ImageFavoritesPage"
+    "pages/image_favorites/ImageFavoritesPage",
+    "pages/image_favorites/ImageFavoritesPhotoViewPage",
+    "pages/favorites/NetworkFavoritesPickerPage"
   ]
 }

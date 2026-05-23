@@ -23,7 +23,6 @@ struct SettingsPage {
   @State syncHint: string = '';
   @State syncing: boolean = false;
   @State jsStatus: string = '';
-
   aboutToAppear(): void {
     const s = JsEngineBridge.getInstance().getStatus();
     this.jsStatus = `init.js ${s.initScriptLength} 字符 · 已暂存 ${s.stagedSourceCount} 源 · ${s.runtimeNote}`;
@@ -98,7 +97,7 @@ struct SettingsPage {
         }
         ListItem() {
           Row() {
-            Text($r('app.string.search_sources_settings'))
+            Text($r('app.string.explore_settings'))
             Blank()
             SymbolGlyph($r('sys.symbol.chevron_right'))
               .fontSize(18)
@@ -106,19 +105,7 @@ struct SettingsPage {
           }
           .width('100%')
           .padding(16)
-          .onClick(() => router.pushUrl({ url: 'pages/settings/SearchSourcesSettingsPage' }))
-        }
-        ListItem() {
-          Row() {
-            Text($r('app.string.explore_pages_settings'))
-            Blank()
-            SymbolGlyph($r('sys.symbol.chevron_right'))
-              .fontSize(18)
-              .fontColor([SysTheme.FONT_SECONDARY])
-          }
-          .width('100%')
-          .padding(16)
-          .onClick(() => router.pushUrl({ url: 'pages/explore/ExplorePagesPickerPage' }))
+          .onClick(() => router.pushUrl({ url: 'pages/settings/ExploreSettingsPage' }))
         }
         ListItem() {
           Row() {

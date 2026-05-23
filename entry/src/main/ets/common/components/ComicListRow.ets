@@ -2,8 +2,15 @@ import { Comic } from '../models/ComicModels';
 import { ImageCacheUtil } from '../utils/ImageCacheUtil';
 import { TagTranslationService } from '../services/TagTranslationService';
 import { SysTheme } from '../theme/SysTheme';
+import { ComicTileStatusOverlay } from './ComicTileStatusOverlay';
+import {
+  comicTileStatusVisible,
+  loadComicTileStatus
+} from '../utils/ComicTileStatusUtil';
+import { LocalFavoritesService } from '../services/LocalFavoritesService';
+import { HistoryService } from '../services/HistoryService';
 
-/** 漫画列表行（封面 + 标题），搜索/分类/收藏复用 */
+/** 漫画列表行（封面 + 标题），搜索/分类/收藏复用 — 对齐 upstream ComicTile detailed 角标 */
 @Component
 export struct ComicListRow {
   @Prop comic: Comic = new Comic();
@@ -11,12 +18,29 @@ export struct ComicListRow {
   @State coverSrc: string = '';
   @State displayTitle: string = '';
   @State displaySubtitle: string = '';
+  @State tileIsFavorite: boolean = false;
+  @State tileHistoryPage: number = 0;
+  @State tileHistoryMaxPage: number = 0;
+  private tileStatusHandler: () => void = () => {
+    this.refreshTileStatus();
+  };
 
   aboutToAppear(): void {
     this.displayTitle = TagTranslationService.translateTagLine(this.comic.title);
     this.displaySubtitle = this.comic.subtitle ?
       TagTranslationService.translateTagLine(this.comic.subtitle) : '';
     this.resolveCover();
+    this.refreshTileStatus();
+    LocalFavoritesService.getInstance().onChange(this.tileStatusHandler);
+    HistoryService.getInstance().onChange(this.tileStatusHandler);
+  }
+
+  private refreshTileStatus(): void {
+    loadComicTileStatus(this.comic.id, this.comic.sourceKey).then((status) => {
+      this.tileIsFavorite = status.isFavorite;
+      this.tileHistoryPage = status.historyPage;
+      this.tileHistoryMaxPage = status.historyMaxPage;
+    });
   }
 
   private async resolveCover(): Promise<void> {
@@ -30,22 +54,43 @@ export struct ComicListRow {
     }
   }
 
-  build() {
-    Row({ space: 12 }) {
+  @Builder
+  coverWithBadges() {
+    Stack({ alignContent: Alignment.TopStart }) {
       if (this.coverSrc.length > 0) {
         Image(this.coverSrc)
-          .width(52)
-          .height(72)
-          .borderRadius(6)
+          .width('100%')
+          .height('100%')
           .objectFit(ImageFit.Cover)
           .backgroundColor(SysTheme.BACKGROUND_SECONDARY)
       } else {
         Column()
-          .width(52)
-          .height(72)
-          .borderRadius(6)
+          .width('100%')
+          .height('100%')
           .backgroundColor(SysTheme.BACKGROUND_SECONDARY)
       }
+      if (comicTileStatusVisible({
+        isFavorite: this.tileIsFavorite,
+        historyPage: this.tileHistoryPage,
+        historyMaxPage: this.tileHistoryMaxPage
+      })) {
+        ComicTileStatusOverlay({
+          isFavorite: this.tileIsFavorite,
+          historyPage: this.tileHistoryPage,
+          historyMaxPage: this.tileHistoryMaxPage,
+          insetLeft: 4
+        })
+      }
+    }
+    .width(52)
+    .height(72)
+    .borderRadius(6)
+    .clip(true)
+  }
+
+  build() {
+    Row({ space: 12 }) {
+      this.coverWithBadges()
       Column() {
         Text(this.displayTitle.length > 0 ? this.displayTitle : this.comic.title)
           .fontSize(15)
